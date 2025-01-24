@@ -1,17 +1,6 @@
-import os
-from langchain_ollama.llms import OllamaLLM
-from dotenv import load_dotenv
 import streamlit as st
 from PIL import Image
 import io
-
-load_dotenv()
-
-MODEL_NAME = os.getenv("MODEL_NAME")
-
-model = OllamaLLM(model=MODEL_NAME)
-
-print(model)
 
 st.set_page_config(page_title="Multimodal Chatbot", layout="wide")
 
