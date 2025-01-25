@@ -77,3 +77,15 @@ def create_event(data: dict):
 
   except HttpError as error:
     print(f"An error occurred: {error}")
+
+
+
+def get_events(data: dict):
+    try:
+        service = build("calendar", "v3", credentials=creds)
+        print("Creating event")
+        events = service.events().list(calendarId='primary', timeMIn = "2025-01-27T00:00:00-00:00" ).execute()
+        return events
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+  

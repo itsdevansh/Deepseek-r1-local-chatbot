@@ -8,7 +8,7 @@ import io
 import json
 
 
-from create_event import create_event
+from create_event import create_event, get_events
 
 load_dotenv()
 
@@ -78,9 +78,11 @@ def llm_create_event(llm: ChatOllama, user_input: str) -> str:
 
 
 if __name__ == "__main__":
-    llm = init_model()
-    user_input = "Can you create an event on 5th February 2025 11:00 AM - 2:00 PM to attend a conference at Unviersity of Ottawa with no attendees?"
-    data = llm_create_event(llm, user_input)
-    print(json.loads(data))
-    link = create_event(json.loads(data))
-    print(link)
+    events = get_events({})
+    print(events)
+    # llm = init_model()
+    # user_input = "Can you create an event on 5th February 2025 11:00 AM - 2:00 PM to attend a conference at Unviersity of Ottawa with no attendees?"
+    # data = llm_create_event(llm, user_input)
+    # print(json.loads(data))
+    # link = create_event(json.loads(data))
+    # print(link)
