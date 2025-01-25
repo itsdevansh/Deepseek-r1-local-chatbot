@@ -1,2 +1,2 @@
-1. User should be able to create,  update, delete
+1. User should be able to create,  update, delete events
 2. Automatic event scheduling
