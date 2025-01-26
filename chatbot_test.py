@@ -1,5 +1,6 @@
 import os
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
@@ -15,7 +16,7 @@ def init_model() -> ChatOllama:
     try:
         MODEL_NAME = os.getenv("MODEL_NAME")
         llm = ChatOllama(
-            model="llama3.2:latest",
+            model=MODEL_NAME,
             temperature=0.3,
         )
         # llm.format = "json"
@@ -25,7 +26,7 @@ def init_model() -> ChatOllama:
         print(f"Model cannot be initialized: {e}")
 
 # Define the agent node
-def agent_node(state):
+def agent_node(state: dict) -> dict:
 #     prompt = ChatPromptTemplate.from_messages(
 #     [
 #         ("system", "You are a helpful assistant. Respond only in Spanish."),
@@ -43,8 +44,15 @@ def agent_node(state):
         if not llm or not tools:
             raise ValueError("LLM or tools missing from context")
         
+        prompt = """
+        You can in Los Angeles time zone.
+        You are a helpful assistant that can create, list, update, and delete google calendar events.
+        Extract all the information from the user message and for information that is missing, ask the user for it causing least friction.
+        Assume data generously.
+        While updating or deleting events, get all the events for the mentioned date from 12am to 11:59pm. Use the id of that particular event to perform the necessary action."""
+        
         memory = MemorySaver()
-        graph_agent = create_react_agent(llm, tools=tools, checkpointer=memory)
+        graph_agent = create_react_agent(llm, tools=tools, checkpointer=memory, state_modifier=prompt)
         
         result = graph_agent.invoke(state)
         print("Agent result:", result)  # Debugging
@@ -60,7 +68,7 @@ def print_stream(stream):
         print("Stream output:", s)
         if "agent" in s and "messages" in s["agent"]:
             message = s["agent"]["messages"][-1]
-            print("Message content:", message.content)
+            print("Message content:", message)
         else:
             print("No 'messages' key in stream output:", s)
 
@@ -72,10 +80,11 @@ if __name__ == "__main__":
     tools = [create_event, get_events, update_event, delete_event]
 
     # User input message
-    # user_message = "Can you create an event on 26 January 2025 from 1 PM to 2 PM? for a meeting at 110 Stewart Street. "
-    # user_message = "Can you list all the events I have on the 27 January 2025?"
+    # user_message = "Can you create an event on 26 January 2025 from 1 PM to 2 PM for a meeting at 110 Stewart Street?"
+    user_message = "Can you list all the events I have on the 26 January 2025?"
     # user_message = "Can you delete all the event on the 27 January 2025?"
-    user_message = "Can you list all the events I have on the 27 January 2025? and then create an event on 27 jan 2025 from 5pm to 6pm for a meeting at 110 stewart street"
+    # user_message = "Can you list all the events I have on the 27 January 2025? and then create an event on 27 jan 2025 from 5pm to 6pm for a meeting at 110 stewart street"
+    # user_message = "Can you delete the Meeting on 26th Jan 2025?"
     # Initialize workflow state
     initial_state = {
         "messages": [("user", user_message)],
@@ -97,8 +106,3 @@ if __name__ == "__main__":
 
     # Print results
     print_stream(events)
-
-
-
-#Can you create an event on 26 January 2025 from 1 PM to 2 PM? for a meeting at 110 Stewart Street.
-#Can you list all the events I have on the 27 January 2025?.Remeber to Respond with END when Done

@@ -85,19 +85,19 @@ def create_event(
 
 @tool
 def get_events(startDateTime: str, endDateTime: str) -> List[dict]:
-  """Get Google Calendar events.
+  """Get Google Calendar events using any date range.
   
   Args:
     startDateTime (str): The start time of the event. example : 2011-06-03T10:00:00-07:00
     endDateTime (str): The end time of the event. example : 2011-06-03T14:00:00-07:00
   
   Returns:
-    dict: The Google Calendar events. Plus Event ID 
+    dict: The Google Calendar events with event Id
   """
   try:
       service = build("calendar", "v3", credentials=creds)
       events = service.events().list(calendarId='primary', timeMin = startDateTime, timeMax = endDateTime).execute()
-      events = [{"eventId":event["eventId"],"summary": event['summary'], "start": event['start'], "end": event['end']} for event in events['items']]
+      events = [{"eventId":event["id"],"summary": event['summary'], "start": event['start'], "end": event['end']} for event in events['items']]
       return events
   except HttpError as error:
       print(f"An error occurred: {error}")
@@ -113,7 +113,7 @@ def update_event(
     end_time: str,
     attendees: List[str],
 ) -> str:
-  """Update a Google Calendar event.
+  """Update a Google Calendar event by eventId but does not delete it.
   
   Args:
     eventId (str): The ID of the event to update.
@@ -146,7 +146,7 @@ def update_event(
 @tool
 def delete_event(eventId: str) -> str:
   """
-   Delete a Google Calendar event.
+   Delete a Google Calendar event using event ID.
    
    Args:
        eventId (str): The ID of the event to delete.
