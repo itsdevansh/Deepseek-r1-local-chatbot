@@ -77,26 +77,27 @@ def create_event(
 
         event = service.events().insert(calendarId='primary', body=event).execute()
         print('Event created: %s' % (event.get('htmlLink')))
-        return event.get('htmlLink')
+        return 'Event created: %s' % (event.get('htmlLink'))
     except HttpError as error:
         print(f"An error occurred: {error}")
         return None
 
 
 @tool
-def get_events(startDateTime: str, endDateTime: str) -> dict:
+def get_events(startDateTime: str, endDateTime: str) -> List[dict]:
   """Get Google Calendar events.
   
   Args:
-    startDateTime (str): The start time of the event.
-    endDateTime (str): The end time of the event.
+    startDateTime (str): The start time of the event. example : 2011-06-03T10:00:00-07:00
+    endDateTime (str): The end time of the event. example : 2011-06-03T14:00:00-07:00
   
   Returns:
-    dict: The Google Calendar events.
+    dict: The Google Calendar events. Plus Event ID 
   """
   try:
       service = build("calendar", "v3", credentials=creds)
       events = service.events().list(calendarId='primary', timeMin = startDateTime, timeMax = endDateTime).execute()
+      events = [{"eventId":event["eventId"],"summary": event['summary'], "start": event['start'], "end": event['end']} for event in events['items']]
       return events
   except HttpError as error:
       print(f"An error occurred: {error}")

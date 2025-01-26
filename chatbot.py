@@ -6,9 +6,10 @@ from PIL import Image
 from langchain_core.prompts import ChatPromptTemplate
 import io
 import json
-
-
-from event_handler import create_event, get_events
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import StateGraph, START, END, MessagesState
+from event_handler import create_event, get_events, update_event, delete_event
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ def init_model() -> ChatOllama:
     try:
         MODEL_NAME = os.getenv("MODEL_NAME")
         llm = ChatOllama(
-            model=MODEL_NAME,
+            model="llama3.2:latest",
             temperature=0.3,
             # other params...
         )
@@ -28,53 +29,22 @@ def init_model() -> ChatOllama:
         print(f"Model cannot be initialized: {e}")
 
 
-def llm_create_event(llm: ChatOllama, user_input: str) -> str:
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You are an agent that creates google calendar events. Your output should be in the following format:{{
-      "summary": " ",
-      "location": " ",
-      "description": " ",
-      "start": {{
-        "dateTime": " ",
-        "timeZone": "America/Los_Angeles",
-      }},
-      "end": {{
-        "dateTime": " ",
-        "timeZone": "America/Los_Angeles",
-      }},
-      "recurrence": [
-        "RRULE:FREQ=DAILY;COUNT=1"
-      ],
-      "attendees": [
-        {{"email": " "}},
-      ],
-      "reminders": {{
-        "useDefault": False,
-        "overrides": [
-          {{"method": "email", "minutes": 24 * 60}},
-          {{"method": "popup", "minutes": 10}},
-        ],
-      }},
-    }}
-    From the user input, see if you can extract relevant information and for information that is missing, you can ask the user questions that you think are necessary to create the event. Remember to cause least friction to the user. Only ask information with technical details, any details that can be inferred from the user input, should be inferred geneously.
-    """,
-            ),
-            ("human", "{input}"),
-        ]
-    )
 
-    chain = prompt | llm
+def agent(llm: ChatOllama, user_message: str):
+    tools = [create_event, get_events, update_event, delete_event]
+    memory = MemorySaver()
+    graph = create_react_agent(llm, tools=tools, checkpointer=memory)
+    return graph
 
-    a = chain.invoke(
-        {
-            "input": user_input
-        }
-    )
-    response = a.content
-    return response
+
+def print_stream(stream):
+    for s in stream:
+        message = s["messages"][-1]
+        if isinstance(message, tuple):
+            print(message)
+        else:
+            message.pretty_print()
+
 
 
 if __name__ == "__main__":
@@ -82,8 +52,11 @@ if __name__ == "__main__":
     # for event in events['items']:
     #     print(event['summary'])
     llm = init_model()
-    user_input = "Can you create an event on 5th February 2025 11:00 AM - 2:00 PM to attend a conference at Unviersity of Ottawa with no attendees?"
-    data = llm_create_event(llm, user_input)
-    print(json.loads(data))
-    link = create_event(json.loads(data))
-    print(link)
+    config = {"configurable": {"thread_id": "1"}}
+    inputs = {"messages": [("user", "Can you create an event on 26 january 2025 from 1pm tp 2pm? for a meeting at 110 stewart street")]}
+    workflow = StateGraph(MessagesState)
+    workflow.add_node("agent",agent)
+    workflow.add_edge("START",agent)
+    workflow.add_edge("agent",END)
+    graph = agent(llm, inputs)
+    print_stream(graph.stream(inputs, config=config, stream_mode="values"))
