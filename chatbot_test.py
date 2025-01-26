@@ -134,19 +134,19 @@ if __name__ == "__main__":
         "next": next_node
     }
 
+    def route(state):
+        if state["next"] == "Human_Input":
+            return "Human_Input"
+        else:
+            return "__end__"
+
     # Create the workflow
     workflow = StateGraph(dict)
     workflow.add_node("agent", agent_node)
     workflow.add_node("Human_Input", human_in_the_loop)
     workflow.add_edge(START, "agent")
     workflow.add_edge("Human_Input","agent")
-    workflow.add_conditional_edges(
-    "agent",
-    {
-        "Human_Input": lambda state: state["next"] == "Human_Input",
-        END: lambda state: state["next"] == "End",
-    },
-)
+    workflow.add_conditional_edges("agent", route)
     # workflow.add_edge("agent", END)
 
     # Compile and execute
