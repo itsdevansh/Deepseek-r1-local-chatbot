@@ -6,6 +6,8 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from typing import List
+from langchain_core.tools import tool
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
@@ -32,51 +34,49 @@ if not creds or not creds.valid:
   with open("token.json", "w") as token:
     token.write(creds.to_json())
 
-  
-def create_event(data: dict):
-  try:
-    service = build("calendar", "v3", credentials=creds)
+@tool
+def create_event(
+    start_time: str,
+    end_time: str,
+    location: str,
+    attendees: List[str],
+) -> dict:
+    """Create a Google Calendar event.
 
-    # Call the Calendar API
-    now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
-    print("Creating event")
+    Args:
+        start_time (str): The start time of the event.
+        end_time (str): The end time of the event.
+        location (str): The location of the event.
+        attendees (List[str]): The list of attendees' emails.
 
-    # event = {
-    #   'summary': 'Google I/O 2015',
-    #   'location': '800 Howard St., San Francisco, CA 94103',
-    #   'description': 'A chance to hear more about Google\'s developer products.',
-    #   'start': {
-    #     'dateTime': f'{now}',
-    #     'timeZone': 'America/Los_Angeles',
-    #   },
-    #   'end': {
-    #     'dateTime': f'{now}',
-    #     'timeZone': 'America/Los_Angeles',
-    #   },
-    #   'recurrence': [
-    #     'RRULE:FREQ=DAILY;COUNT=2'
-    #   ],
-    #   'attendees': [
-    #     {'email': 'lpage@example.com'},
-    #     {'email': 'sbrin@example.com'},
-    #   ],
-    #   'reminders': {
-    #     'useDefault': False,
-    #     'overrides': [
-    #       {'method': 'email', 'minutes': 24 * 60},
-    #       {'method': 'popup', 'minutes': 10},
-    #     ],
-    #   },
-    # }
+    Returns:
+        dict: The Google Calendar event.
+    """
+    try:
+        service = build("calendar", "v3", credentials=creds)
+        event = {
+            "summary": "Event",
+            "location": location,
+            "description": "Event",
+            "start": {"dateTime": start_time, "timeZone": "America/Los_Angeles"},
+            "end": {"dateTime": end_time, "timeZone": "America/Los_Angeles"},
+            "recurrence": ["RRULE:FREQ=DAILY;COUNT=1"],
+            "attendees": [{"email": attendee} for attendee in attendees],
+            "reminders": {
+                "useDefault": False,
+                "overrides": [
+                    {"method": "email", "minutes": 24 * 60},
+                    {"method": "popup", "minutes": 10},
+                ],
+            },
+        }
 
-    event = data
-
-    event = service.events().insert(calendarId='primary', body=event).execute()
-    # print('Event created: %s' % (event.get('htmlLink')))
-    return event.get('htmlLink')
-
-  except HttpError as error:
-    print(f"An error occurred: {error}")
+        event = service.events().insert(calendarId='primary', body=event).execute()
+        print('Event created: %s' % (event.get('htmlLink')))
+        return event.get('htmlLink')
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+        return None
 
 
 
