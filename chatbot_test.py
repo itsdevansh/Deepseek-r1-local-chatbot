@@ -1,4 +1,5 @@
 import os
+from typing import TypedDict
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
@@ -12,6 +13,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 # Load environment variables
 load_dotenv()
 
+class State(TypedDict):
+    context: dict
+    messages: list
+    next: str
 # Initialize the model
 def init_model() -> ChatOpenAI:
     try:
@@ -34,14 +39,14 @@ def parse_next_node(aimessage:str):
     else:
         return "End"
     
-def human_in_the_loop(state: dict) -> dict:
-    human = interrupt(state["messages"][-1].content)
+def human_in_the_loop(state: State) -> State:
+    human = interrupt(state.messages[-1].content)
     # information = "It is a personal meeting from 1 pm to 2pm and no attendees."
-    state["messages"].append(HumanMessage(human))
+    state.messages.append(HumanMessage(human))
     return state
 
 # Define the agent node
-def agent_node(state: dict) -> dict:
+def agent_node(state: State) -> State:
 #     prompt = ChatPromptTemplate.from_messages(
 #     [
 #         ("system", "You are a helpful assistant. Respond only in Spanish."),
@@ -54,10 +59,10 @@ def agent_node(state: dict) -> dict:
         if not isinstance(state, dict) or "context" not in state or "messages" not in state:
             raise ValueError("State must be a dictionary with 'context' and 'messages' keys")
 
-        llm = state["context"].get("llm")
-        tools = state["context"].get("tools")
-        memory = state["context"].get("memory")
-        
+        llm = state.context.get("llm")
+        tools = state.context.get("tools")
+        # memory = state.context.get("memory")
+        print("--------------------------",state)
         if not llm or not tools:
             raise ValueError("LLM or tools missing from context")
         
@@ -68,16 +73,16 @@ def agent_node(state: dict) -> dict:
         Assume data generously
         While updating or deleting events, get all the events for the mentioned date from 12am to 11:59pm. Use the id of that particular event to perform the necessary action."""
         
-        # memory = MemorySaver()
+        memory = MemorySaver()
         graph_agent = create_react_agent(llm, tools=tools, checkpointer=memory, state_modifier=prompt)
         print(graph_agent)
         print(state)
-        result = graph_agent.invoke(state)
-        state_update = parse_next_node(result["messages"][-1].content)
-        state["next"] = state_update
-        # print("-----------------------------",state)
+        result = graph_agent.invoke( state)
+        state_update = parse_next_node(state.messages[-1].content)
+        state.next = state_update
+        print("-----------------------------",state)
         print("Agent result:", result)  # Debugging
-        state["messages"].extend(result["messages"])
+        state.messages.extend(state.messages)
 
         return state
     except Exception as e:
@@ -120,24 +125,25 @@ if __name__ == "__main__":
     checkpointer = MemorySaver()
     # Initialize workflow state
     next_node = "agent"
-    initial_state = {
-        "messages": [("user", user_message)],
-        "context": {
-            "llm": llm,
-            "tools": tools,
-            "memory": checkpointer
-        },
-        "next": next_node
-    }
+    initial_state = State({"context":{"llm": llm, "tools": tools}, "messages":[("user", user_message)], "next":next_node})
+    # initial_state = {
+    #     "messages": [("user", user_message)],
+    #     "context": {
+    #         "llm": llm,
+    #         "tools": tools,
+    #         # "memory": checkpointer
+    #     },
+    #     "next": next_node
+    # }
 
     def route(state):
-        if state["next"] == "Human_Input":
+        if state.next == "Human_Input":
             return "Human_Input"
         else:
             return "__end__"
 
     # Create the workflow
-    workflow = StateGraph(dict)
+    workflow = StateGraph(State)
     workflow.add_node("agent", agent_node)
     workflow.add_node("Human_Input", human_in_the_loop)
     workflow.add_edge(START, "agent")
