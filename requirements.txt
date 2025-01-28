@@ -14,3 +14,5 @@ bcrypt
 pydantic
 passlib
 langgraph
+python-jose
+python-multipart

@@ -1,15 +1,15 @@
 import os
-from pydantic import BaseModel
-from langchain_ollama import ChatOllama
+import asyncio
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END, MessagesState
+from langgraph.graph.state import CompiledStateGraph
 from app.chatbot.event_handler import create_event, get_events, update_event, delete_event
-from langchain_core.prompts import ChatPromptTemplate
-from langgraph.types import interrupt, Command
+from langgraph.types import StateSnapshot
 from langchain_core.messages import AIMessage, HumanMessage
+
 # Load environment variables
 load_dotenv()
 
@@ -21,7 +21,7 @@ def init_model() -> ChatOpenAI:
         MODEL_NAME = os.getenv("MODEL_NAME")
         OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
         llm = ChatOpenAI(
-            model="gpt-4o-mini",
+            model=MODEL_NAME,
             temperature=0.3,
             api_key=OPENAI_API_KEY,
         )
@@ -32,20 +32,16 @@ def init_model() -> ChatOpenAI:
     except Exception as e:
         print(f"Model cannot be initialized: {e}")
 
-# def parse_next_node(aimessage:str):
-#     if "Human" in aimessage:
-#         return "Human_Input"
-#     else:
-#         return "End"
+llm = init_model()
     
-def human_in_the_loop(state: dict):
-    human = interrupt(state["messages"][-1].content)
-    # information = "It is a personal meeting from 1 pm to 2pm and no attendees."
-    state["messages"].append(HumanMessage(human))
-    return state
+# def human_in_the_loop(state: dict):
+#     human = interrupt(state["messages"][-1].content)
+#     # information = "It is a personal meeting from 1 pm to 2pm and no attendees."
+#     state["messages"].append(HumanMessage(human))
+#     return state
 
 # Define the agent node
-def agent_node(state: dict):
+def agent_node(state: dict) -> dict:
 
     try:
         # Validate the state structure
@@ -64,6 +60,8 @@ def agent_node(state: dict):
         Assume data generously
         While updating or deleting events, get all the events for the mentioned date from 12am to 11:59pm. Use the id of that particular event to perform the necessary action."""
     
+        llm = init_model()
+
         graph_agent = create_react_agent(llm, tools=tools, state_modifier=prompt)
         result = graph_agent.invoke(state)
         print("Agent result:", result)  # Debugging
@@ -96,56 +94,40 @@ def print_stream(stream):
         print(f"Error in print_stream: {e}")
         
 # Main workflow
-if __name__ == "__main__":
-    llm = init_model()
 
-    # Tools for handling events
-    tools = [create_event, get_events, update_event, delete_event]
-
+def get_workflow() -> CompiledStateGraph:
     # User input message
-    user_message = "Can you create an event on 26 January 2025 for a meeting at 110 Stewart Street?"
+    # user_message = "Can you create an event on 26 January 2025 for a meeting at 110 Stewart Street?"
     # user_message = "Can you list all the events I have on the 26 January 2025?"
     # user_message = "Can you delete all the event on the 27 January 2025?"
     # user_message = "Can you list all the events I have on the 27 January 2025? and then create an event on 27 jan 2025 from 5pm to 6pm for a meeting at 110 stewart street"
     # user_message = "Can you delete the Meeting on 26th Jan 2025?"
-    # Initialize workflow state
-    next_node = "agent"
-    initial_state = {"context":{"llm": llm, "tools": tools}, "messages":[HumanMessage(user_message)], "next": next_node}
-    initial_state = {
-        "messages": [("user", user_message)],
-    }
 
-    def route(state: dict):
-        if "Human" in state["messages"][-1].content:
-            return "Human_Input"
-        else:
-            return END
+    # def route(state: dict):
+    #     if "Human" in state["messages"][-1].content:
+    #         return "Human_Input"
+    #     else:
+    #         return END
 
     # Create the workflow
     workflow = StateGraph(MessagesState)
     workflow.add_node("agent", agent_node)
-    workflow.add_node("Human_Input", human_in_the_loop)
+    # workflow.add_node("Human_Input", human_in_the_loop)
     workflow.add_edge(START, "agent")
-    workflow.add_edge("Human_Input","agent")
-    workflow.add_conditional_edges("agent", route)
-    # workflow.add_edge("agent", END)
+    # workflow.add_edge("Human_Input","agent")
+    # workflow.add_conditional_edges("agent", route)
+    workflow.add_edge("agent", END)
 
     memory = MemorySaver()
     # Compile and execute
     graph = workflow.compile(checkpointer=memory)
+    return graph
 
-    # events = graph.stream(initial_state, config={"configurable": {"thread_id": "1"}})
 
-    # Print results
-    # print_stream(events)
+def run_chatbot(graph: CompiledStateGraph, state: MessagesState) -> StateSnapshot:
 
     config = {"configurable": {"thread_id": "1"}}
 
-    # Using stream() to directly surface the `__interrupt__` information.
-    for chunk in graph.stream(initial_state, config=config):
+    for chunk in graph.stream(state, config=config):
         print(chunk)
-    
-    # Resume using Command
-    while "__interrupt__" in chunk:
-        for chunk in graph.stream(Command(resume=input("Enter additional info: ")), config=config):
-            print(chunk)
+    return graph.get_state(config=config)
