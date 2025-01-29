@@ -1,25 +1,39 @@
 import streamlit as st
 from PIL import Image
 import io
+from chatbot import get_workflow, run_chatbot
+from langchain_core.messages import AIMessage, HumanMessage
 
-st.set_page_config(page_title="Multimodal Chatbot", layout="wide")
+st.set_page_config(page_title="Google Event Manager", layout="wide")
 
 def initialize_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "DeepSeek-r1"
+        st.session_state.selected_model = "Google Calendar Agent"
+    if "graph" not in st.session_state:
+        st.session_state.graph = get_workflow() 
+    if "config" not in st.session_state:
+        st.session_state.config = {"configurable": {"thread_id": "1"}}
+    if "state" not in st.session_state:
+        st.session_state.state = st.session_state.graph.get_state(config=st.session_state.config)
 
-def process_message(message, uploaded_file):
-    response = f"Model {st.session_state.selected_model} response to: {message}"
-    if uploaded_file:
-        response += " (with uploaded media)"
+def process_message(message):
+    if st.session_state.state.values == {}:
+        st.session_state.state.values["messages"] = [HumanMessage(message)]
+    else:
+        st.session_state.state.values["messages"].append(HumanMessage(message))
+    updated_state = run_chatbot(st.session_state.graph, st.session_state.state.values)
+    st.session_state.state.values['messages'].append(updated_state.values["messages"][-1])
+    response = st.session_state.state.values["messages"][-1].content
+    response = f"Model {st.session_state.selected_model} response to: {response}"
     return response
 
 def main():
+
     initialize_session_state()
     
-    st.title("Multimodal Chatbot")
+    st.title("Google Event Manager")
     
     # Sidebar for model selection
     with st.sidebar:
@@ -39,28 +53,19 @@ def main():
                 st.write(message["content"])
     
     # Input area
-    uploaded_file = st.file_uploader("Upload image or file", type=["jpg", "jpeg", "png", "pdf"])
+    # uploaded_file = st.file_uploader("Upload image or file", type=["jpg", "jpeg", "png", "pdf"])
     
     if user_input := st.chat_input("Send a message"):
         # Display user message
         with st.chat_message("user"):
-            if uploaded_file:
-                image = Image.open(uploaded_file)
-                st.image(image)
-                st.session_state.messages.append({
-                    "role": "user",
-                    "content": user_input,
-                    "image": uploaded_file
-                })
-            else:
-                st.write(user_input)
-                st.session_state.messages.append({
-                    "role": "user",
-                    "content": user_input
-                })
-        
+            st.write(f"You: {user_input}")
+            st.session_state.messages.append({
+                "role": "user",
+                "content": user_input
+            })
+    
         # Generate and display assistant response
-        response = process_message(user_input, uploaded_file)
+        response = process_message(user_input)
         with st.chat_message("assistant"):
             st.write(response)
             st.session_state.messages.append({

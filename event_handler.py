@@ -96,7 +96,7 @@ def get_events(startDateTime: str, endDateTime: str) -> List[dict]:
   """
   try:
       service = build("calendar", "v3", credentials=creds)
-      events = service.events().list(calendarId='primary', timeMin = startDateTime, timeMax = endDateTime).execute()
+      events = service.events().list(calendarId='primary', timeMin = startDateTime, timeMax = endDateTime, singleEvents=True).execute()
       events = [{"eventId":event["id"],"summary": event['summary'], "start": event['start'], "end": event['end']} for event in events['items']]
       return events
   except HttpError as error:

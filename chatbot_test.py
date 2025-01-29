@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END, MessagesState
-from app.chatbot.event_handler import create_event, get_events, update_event, delete_event
+from event_handler import create_event, get_events, update_event, delete_event
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.types import interrupt, Command
 from langchain_core.messages import AIMessage, HumanMessage

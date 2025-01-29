@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from app.utils.jwt import get_current_user
 from fastapi.security import OAuth2PasswordBearer
 from app.models import chatDict
-from app.chatbot.chatbot import get_workflow, run_chatbot
+from chatbot import get_workflow, run_chatbot
 from langchain_core.messages import AIMessage, HumanMessage
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

@@ -6,9 +6,10 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.graph.state import CompiledStateGraph
-from app.chatbot.event_handler import create_event, get_events, update_event, delete_event
+from event_handler import create_event, get_events, update_event, delete_event
 from langgraph.types import StateSnapshot
 from langchain_core.messages import AIMessage, HumanMessage
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -52,19 +53,21 @@ def agent_node(state: dict) -> dict:
         # tools = state["context"]["tools"]
         # if not llm or not tools:
         #     raise ValueError("LLM or tools missing from context")
+
+        date = datetime.now().strftime("%Y-%m-%d")
         
-        prompt = """
+        prompt = f"""
         You are a helpful assistant that can create, list, update, and delete google calendar events.
-        You are in Eastern Standard Time Zone.
-        Extract all the information from the user message and for information that is missing, ask the user for it causing least friction. Whenever you need data from the user, always ask the question starting with the phrase 'Human'."
-        Assume data generously
+        You are in Eastern Standard Time Zone and today is {date}. Assume the user is asking for the same year if not mentioned.
+        Extract all the information from the user message and for information that is missing, ask the user for it causing least friction.
+        Assume data generously.
         While updating or deleting events, get all the events for the mentioned date from 12am to 11:59pm. Use the id of that particular event to perform the necessary action."""
     
         llm = init_model()
 
         graph_agent = create_react_agent(llm, tools=tools, state_modifier=prompt)
         result = graph_agent.invoke(state)
-        print("Agent result:", result)  # Debugging
+        # print("Agent result:", result)  # Debugging
         state["messages"].extend(result["messages"])
 
         return state
@@ -130,4 +133,5 @@ def run_chatbot(graph: CompiledStateGraph, state: MessagesState) -> StateSnapsho
 
     for chunk in graph.stream(state, config=config):
         print(chunk)
+
     return graph.get_state(config=config)
