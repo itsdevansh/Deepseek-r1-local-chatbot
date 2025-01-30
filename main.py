@@ -77,8 +77,8 @@ st.markdown("""
 def initialize_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "Google Calendar Agent"
+    # if "selected_model" not in st.session_state:
+    #     st.session_state.selected_model = "Google Calendar Agent"
     if "graph" not in st.session_state:
         st.session_state.graph = get_workflow() 
     if "config" not in st.session_state:
@@ -114,6 +114,7 @@ def authenticate():
             token.write(creds.to_json())
     st.session_state.authenticated = True
     st.session_state.creds = creds
+    
 
 def main():
     initialize_session_state()
@@ -122,14 +123,14 @@ def main():
     st.title("📅 Calendar Assistant")
     
     # Sidebar with improved styling
-    with st.sidebar:
-        st.markdown("### Assistant Settings")
-        st.selectbox(
-            "Choose Model",
-            ["Google Calendar Agent"],
-            index=0,
-            key="selected_model"
-        )
+    # with st.sidebar:
+    #     st.markdown("### Assistant Settings")
+    #     st.selectbox(
+    #         "Choose Model",
+    #         ["Google Calendar Agent"],
+    #         index=0,
+    #         key="selected_model"
+    #     )
     
     # Main chat interface
     if not st.session_state.authenticated:
@@ -147,22 +148,30 @@ def main():
     
     # Chat messages
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if message.get("image"):
-                st.image(message["image"])
-            st.markdown(message["content"])
+            with st.chat_message(message["role"]):
+                if message.get("image"):
+                    st.image(message["image"])
+                st.markdown(message["content"])
     
     # Chat input
     if st.session_state.authenticated:
         st.success("✓ Connected to Calendar")
-        if user_input := st.chat_input("Ask about your calendar..."):
+        
+        with st.container():
+            col1, col2 = st.columns([1, 8])
+            with col1:
+                mic_clicked = st.button("🎤", use_container_width=True)
+            with col2:
+                user_input = st.chat_input("Ask about your calendar...")
+        
+        if user_input:
             with st.chat_message("user"):
                 st.markdown(user_input)
                 st.session_state.messages.append({
                     "role": "user",
                     "content": user_input
                 })
-            
+
             with st.chat_message("assistant"):
                 response = process_message(user_input, st.session_state.creds)
                 st.markdown(response)
@@ -170,6 +179,8 @@ def main():
                     "role": "assistant",
                     "content": response
                 })
+            
+          
 
 if __name__ == "__main__":
     main()
