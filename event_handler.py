@@ -15,7 +15,7 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 """Shows basic usage of the Google Calendar API.
 Prints the start and name of the next 10 events on the user's calendar.
 """
-creds = None
+cred = None
 # The file token.json stores the user's access and refresh tokens, and is
 # created automatically when the authorization flow completes for the first
 # time.
@@ -33,6 +33,11 @@ creds = None
 #   # Save the credentials for the next run
 #   with open("token.json", "w") as token:
 #     token.write(creds.to_json())
+
+def init_google_calendar(credentials):
+  global creds
+  creds = credentials
+  print("Calendar initialized successfully")
 
 @tool
 def create_event(

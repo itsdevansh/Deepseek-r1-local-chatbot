@@ -6,7 +6,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.graph.state import CompiledStateGraph
-from event_handler import create_event, get_events, update_event, delete_event
+from event_handler import create_event, get_events, update_event, delete_event, init_google_calendar
 from langgraph.types import StateSnapshot
 from langchain_core.messages import AIMessage, HumanMessage
 from datetime import datetime
@@ -127,7 +127,9 @@ def get_workflow() -> CompiledStateGraph:
     return graph
 
 
-def run_chatbot(graph: CompiledStateGraph, state: MessagesState) -> StateSnapshot:
+def run_chatbot(graph: CompiledStateGraph, state: MessagesState, creds) -> StateSnapshot:
+    
+    init_google_calendar(creds)
 
     config = {"configurable": {"thread_id": "1"}}
 

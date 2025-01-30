@@ -15,7 +15,64 @@ TOKEN_FILE = "token.json"
 CLIENT_SECRET_FILE = "credentials.json"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-st.set_page_config(page_title="Google Event Manager", layout="wide")
+# Configure page settings with dark theme support
+st.set_page_config(
+    page_title="Calendar Assistant",
+    page_icon="📅",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
+
+# Modern UI styling with better contrast
+st.markdown("""
+    <style>
+    /* Header text fix */
+    .stApp header {
+        background-color: transparent !important;
+    }
+    
+    /* Calendar Assistant title */
+    [data-testid="stHeader"] {
+        color: #ffffff !important;
+    }
+    
+    h1 {
+        color: #ffffff !important;
+        font-weight: 500;
+    }
+    
+    /* Sidebar text fixes */
+    [data-testid="stSidebar"] {
+        color: #ffffff;
+    }
+    
+    [data-testid="stSidebar"] h3 {
+        color: #ffffff !important;
+    }
+    
+    [data-testid="stSidebar"] .stSelectbox label {
+        color: #ffffff !important;
+    }
+    
+    [data-testid="stSidebar"] .stSelectbox span {
+        color: #ffffff !important;
+    }
+    
+    /* Warning/status messages in sidebar */
+    [data-testid="stSidebar"] .stAlert {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
+    }
+    
+    .st-warning {
+        color: #ffffff !important;
+    }
+    
+    .st-success {
+        color: #ffffff !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 def initialize_session_state():
     if "messages" not in st.session_state:
@@ -31,107 +88,88 @@ def initialize_session_state():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
-def process_message(message):
+def process_message(message, creds):
     if st.session_state.state.values == {}:
         st.session_state.state.values["messages"] = [HumanMessage(message)]
     else:
         st.session_state.state.values["messages"].append(HumanMessage(message))
-    updated_state = run_chatbot(st.session_state.graph, st.session_state.state.values)
+    updated_state = run_chatbot(st.session_state.graph, st.session_state.state.values, creds)
     st.session_state.state.values['messages'].append(updated_state.values["messages"][-1])
     response = st.session_state.state.values["messages"][-1].content
-    response = f"Model {st.session_state.selected_model} response to: {response}"
     return response
 
 def authenticate():
     creds = None
-
     if os.path.exists(TOKEN_FILE):
-      creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if not creds or not creds.valid:
-      if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-      else:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            CLIENT_SECRET_FILE, SCOPES
-        )
-        creds = flow.run_local_server(port=0)
-      # Save the credentials for the next run
-      with open(TOKEN_FILE, "w") as token:
-        token.write(creds.to_json())
-
-    # If no valid credentials, authenticate user
-    # if not creds or not creds.valid:
-    #     if creds and creds.expired and creds.refresh_token:
-    #         creds.refresh(Request())
-    #     else:
-    #         flow = Flow.from_client_secrets_file(
-    #             CLIENT_SECRET_FILE, SCOPES, redirect_uri="http://localhost:8501/"
-    #         )
-    #         auth_url, _ = flow.authorization_url(prompt="consent")
-    #         st.write(f"[Login with Google]({auth_url})")
-
-    #         auth_code = st.text_input("Enter Authorization Code:")
-    #         if st.button("Authenticate"):
-    #             if auth_code:
-    #                 flow.fetch_token(code=auth_code)
-    #                 creds = flow.credentials
-    #                 with open(TOKEN_FILE, "wb") as token:
-    #                     pickle.dump(creds, token)
-    #                 st.success("Authentication successful! You can now access Google Calendar.")
-    #             else:
-    #                 st.error("Please enter the authorization code.")
-
-    return creds
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                CLIENT_SECRET_FILE, SCOPES
+            )
+            creds = flow.run_local_server(port=0)
+        with open(TOKEN_FILE, "w") as token:
+            token.write(creds.to_json())
+    st.session_state.authenticated = True
+    st.session_state.creds = creds
 
 def main():
-
     initialize_session_state()
     
-    st.title("Google Event Manager")
-
+    # Main container
+    st.title("📅 Calendar Assistant")
     
-    # Sidebar for model selection
+    # Sidebar with improved styling
     with st.sidebar:
-        st.session_state.selected_model = st.selectbox(
+        st.markdown("### Assistant Settings")
+        st.selectbox(
             "Choose Model",
             ["Google Calendar Agent"],
-            index=0
+            index=0,
+            key="selected_model"
         )
     
-    # Chat interface
-    chat_container = st.container()
-    with chat_container:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                if message.get("image"):
-                    st.image(message["image"])
-                st.write(message["content"])
+    # Main chat interface
+    if not st.session_state.authenticated:
+        st.markdown("""
+            <div class="welcome-container">
+                <h2>👋 Welcome to Calendar Assistant!</h2>
+                <p style="color: #666666; margin: 1rem 0;">Connect your Google Calendar to get started</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🔗 Connect Calendar", use_container_width=True):
+                authenticate()
     
-    # Input area
-    # uploaded_file = st.file_uploader("Upload image or file", type=["jpg", "jpeg", "png", "pdf"])
-    if st.button("Authenticate with Google"):
-        creds = authenticate()
-        if "auth_url" in st.session_state:
-            st.write(f"[Login with Google]({st.session_state.auth_url})")
+    # Chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            if message.get("image"):
+                st.image(message["image"])
+            st.markdown(message["content"])
     
-    if user_input := st.chat_input("Send a message"):
-        # Display user message
-        with st.chat_message("user"):
-            st.write(f"You: {user_input}")
-            st.session_state.messages.append({
-                "role": "user",
-                "content": user_input
-            })
-    
-        # Generate and display assistant response
-        response = process_message(user_input)
-        with st.chat_message("assistant"):
-            st.write(response)
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": response
-            })
+    # Chat input
+    if st.session_state.authenticated:
+        st.success("✓ Connected to Calendar")
+        if user_input := st.chat_input("Ask about your calendar..."):
+            with st.chat_message("user"):
+                st.markdown(user_input)
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": user_input
+                })
+            
+            with st.chat_message("assistant"):
+                response = process_message(user_input, st.session_state.creds)
+                st.markdown(response)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": response
+                })
 
 if __name__ == "__main__":
     main()
