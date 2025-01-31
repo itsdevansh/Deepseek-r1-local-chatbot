@@ -10,10 +10,65 @@ from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+from streamlit_extras.stylable_container import stylable_container
+import sounddevice as sd
+import scipy.io.wavfile as wav
+import numpy as np
+import tempfile
+from openai import OpenAI
+import queue
 
 TOKEN_FILE = "token.json"
 CLIENT_SECRET_FILE = "credentials.json"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+
+class AudioRecorder:
+    def __init__(self):
+        self.fs = 44100  # Sample rate
+        self.recording = False
+        self.audio_queue = queue.Queue()
+        
+    def callback(self, indata, frames, time, status):
+        if self.recording:
+            self.audio_queue.put(indata.copy())
+    
+    def start_recording(self):
+        self.recording = True
+        self.audio_data = []
+        self.stream = sd.InputStream(
+            samplerate=self.fs,
+            channels=1,
+            callback=self.callback
+        )
+        self.stream.start()
+    
+    def stop_recording(self):
+        self.recording = False
+        self.stream.stop()
+        self.stream.close()
+        
+        # Combine all audio data
+        while not self.audio_queue.empty():
+            self.audio_data.append(self.audio_queue.get())
+        
+        if not self.audio_data:
+            return None
+            
+        audio_data = np.concatenate(self.audio_data, axis=0)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+        wav.write(temp_file.name, self.fs, audio_data)
+        return temp_file.name
+
+def transcribe_audio(audio_file_path):
+    client = OpenAI()
+    with open(audio_file_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+    return transcription.text
+
 
 # Configure page settings with dark theme support
 st.set_page_config(
@@ -87,6 +142,10 @@ def initialize_session_state():
         st.session_state.state = st.session_state.graph.get_state(config=st.session_state.config)
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+    if "recording" not in st.session_state:
+        st.session_state.recording = False
+    if "transcribed_text" not in st.session_state:
+        st.session_state.transcribed_text = None
 
 def process_message(message, creds):
     if st.session_state.state.values == {}:
@@ -114,7 +173,6 @@ def authenticate():
             token.write(creds.to_json())
     st.session_state.authenticated = True
     st.session_state.creds = creds
-    
 
 def main():
     initialize_session_state()
@@ -155,31 +213,64 @@ def main():
     
     # Chat input
     if st.session_state.authenticated:
-        st.success("✓ Connected to Calendar")
-        
-        with st.container():
-            col1, col2 = st.columns([1, 8])
+    
+        with stylable_container(
+        key="bottom_content",
+        css_styles="""
+            {
+                position: fixed;
+                bottom: 0;
+                opacity: 1;
+                padding: 30px;
+                background-color: #0e1117;
+            }
+            """,
+        ):
+            col1, col2 = st.columns([1, 10])
             with col1:
-                mic_clicked = st.button("🎤", use_container_width=True)
+                if st.button(icon=":material/mic:", label="", key="mic", type='primary'):
+                    if not st.session_state.recording:
+                # Start recording
+                        st.session_state.recording = True
+                        st.session_state.audio_recorder = AudioRecorder()
+                        st.session_state.audio_recorder.start_recording()
+                        st.rerun()
+                    else:
+                        # Stop recording
+                        audio_file = st.session_state.audio_recorder.stop_recording()
+                        st.session_state.recording = False
+                        
+                        if audio_file:
+                            with st.spinner(""):
+                                transcription = transcribe_audio(audio_file)
+                                print(transcription)
+                                st.session_state.transcribed_text = transcription
+                                os.unlink(audio_file)  # Clean up temporary file
+                            st.rerun()
             with col2:
-                user_input = st.chat_input("Ask about your calendar...")
+                user_input = st.chat_input("Ask about your calendar...")       
+            
         
-        if user_input:
+        if user_input or st.session_state.transcribed_text:
+            if user_input:
+                text = user_input
+            if st.session_state.transcribed_text:
+                text = st.session_state.transcribed_text
+                st.session_state.transcribed_text = None
             with st.chat_message("user"):
-                st.markdown(user_input)
+                st.markdown(text)
                 st.session_state.messages.append({
                     "role": "user",
-                    "content": user_input
+                    "content": text
                 })
 
             with st.chat_message("assistant"):
-                response = process_message(user_input, st.session_state.creds)
+                response = process_message(text, st.session_state.creds)
                 st.markdown(response)
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": response
-                })
-            
+            })
           
 
 if __name__ == "__main__":
