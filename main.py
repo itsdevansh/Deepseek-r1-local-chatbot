@@ -146,6 +146,8 @@ def initialize_session_state():
         st.session_state.recording = False
     if "transcribed_text" not in st.session_state:
         st.session_state.transcribed_text = None
+    if "recording_icon" not in st.session_state:
+        st.session_state.recording_icon = ":material/mic:"
 
 def process_message(message, creds):
     if st.session_state.state.values == {}:
@@ -228,10 +230,11 @@ def main():
         ):
             col1, col2 = st.columns([1, 10])
             with col1:
-                if st.button(icon=":material/mic:", label="", key="mic", type='primary'):
+                if st.button(icon=st.session_state.recording_icon, label="", key="mic", type='primary'):
                     if not st.session_state.recording:
                 # Start recording
                         st.session_state.recording = True
+                        st.session_state.recording_icon = ":material/stop_circle:"
                         st.session_state.audio_recorder = AudioRecorder()
                         st.session_state.audio_recorder.start_recording()
                         st.rerun()
@@ -239,7 +242,7 @@ def main():
                         # Stop recording
                         audio_file = st.session_state.audio_recorder.stop_recording()
                         st.session_state.recording = False
-                        
+                        st.session_state.recording_icon = ":material/mic:"
                         if audio_file:
                             with st.spinner(""):
                                 transcription = transcribe_audio(audio_file)
