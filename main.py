@@ -69,6 +69,21 @@ def transcribe_audio(audio_file_path):
         )
     return transcription.text
 
+def speak_text(text):
+    client = OpenAI()
+    speech_file_path = "speech.mp3"
+    response = client.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=text,
+    )
+    response = response.read()
+    st.audio(response, format="audio/wav", autoplay=True)
+
+    # audio_file = open(speech_file_path, "rb")
+    # audio_bytes = audio_file.read()
+    # return audio_bytes
+
 
 # Configure page settings with dark theme support
 st.set_page_config(
@@ -149,7 +164,7 @@ def initialize_session_state():
     if "recording_icon" not in st.session_state:
         st.session_state.recording_icon = ":material/mic:"
 
-def process_message(message, creds):
+def process_message(message, creds) -> str:
     if st.session_state.state.values == {}:
         st.session_state.state.values["messages"] = [HumanMessage(message)]
     else:
@@ -257,9 +272,11 @@ def main():
         if user_input or st.session_state.transcribed_text:
             if user_input:
                 text = user_input
+                audio = False
             if st.session_state.transcribed_text:
                 text = st.session_state.transcribed_text
                 st.session_state.transcribed_text = None
+                audio = True
             with st.chat_message("user"):
                 st.markdown(text)
                 st.session_state.messages.append({
@@ -269,6 +286,8 @@ def main():
 
             with st.chat_message("assistant"):
                 response = process_message(text, st.session_state.creds)
+                if audio:
+                    speak_text(response)
                 st.markdown(response)
                 st.session_state.messages.append({
                     "role": "assistant",
