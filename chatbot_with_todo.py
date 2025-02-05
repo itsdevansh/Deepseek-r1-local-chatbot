@@ -1,6 +1,7 @@
 # main.py
 import os
-from datetime import datetime
+from datetime import datetime, time
+import pytz
 from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
@@ -61,6 +62,7 @@ def calendar_agent(state: MessagesState) -> MessagesState:
 You are an intelligent assistant that manages a Google Calendar using tools you are provided.
 You can call only one tool at a time, once you create one event you have to call again if you want to create another event.
 While updating or deleting events, get all the events for the mentioned date from 12am to 11:59pm. Use the id of that particular event to perform the necessary action.
+output date/time values in ISO 8601/RFC3339 format including the time zone information.
 If the user has provided a to-do list. Your task is to:
   1. Parse the following to-do list input and extract each task.
   2. Fetch the events of the mentioned day using get_event tool as prescribed from 12am to 11:59pm.
@@ -91,21 +93,6 @@ Output must only be a valid JSON in the following format with no extra character
         state["messages"].extend(result["messages"])
         return state
 
-        # Fallback: Use the standard prompt for calendar management.
-#         prompt = f"""
-# You are a helpful assistant that manages Google Calendar events. Today is {today_str}.
-# Extract all necessary information from the user message and use appropriate tools (create_event, get_events, update_event, delete_event)
-# to create, list, update, or delete calendar events. Ask follow-up questions if any required details are missing.
-# """
-#         graph_agent = create_react_agent(
-#             llm,
-#             tools=[create_event, get_events, update_event, delete_event],
-#             state_modifier=prompt
-#         )
-#         result = graph_agent.invoke(state)
-#         state["messages"].extend(result["messages"])
-#         return state
-
     except Exception as e:
         print(f"Error in calendar_agent: {e}")
         return state
@@ -121,16 +108,17 @@ def scheduling_agent(state: MessagesState) -> MessagesState:
         You are an intellient task scheduling that schedules user's tasks or events at reasonable times by analysing user's schedule for the day. You need to think how much time will each task take and what order should to schedule the tasks in.
         Remember that today's date and time {date}. Schedule events only after the current time without overlap with existing events.
         Your input: {agent_message}
+        output date/time values in ISO 8601/RFC3339 format including the time zone information.
         Output all user's tasks with the scheduled start time and end time and all other information you received. Respond only in valid json format.
         """
     
-        deepseek = ChatOllama(model='deepseek-r1:14b')
+        deepseek = ChatOllama(model='deepseek-r1:7b')
         print("----------------------------", deepseek)
 
         graph_agent = create_react_agent(model=deepseek, tools=[], state_modifier=prompt)
         result = graph_agent.invoke(state)
         print("Scheduling agent result:", result)  # Debugging
-        result["messages"][-1] = HumanMessage(content=result["messages"][-1].content.split('</think')[1], name="calendar")
+        result["messages"][-1] = HumanMessage(content=result["messages"][-1].content.split('</think>')[1], name="calendar")
         state["messages"].extend(result["messages"])
         
         return state
