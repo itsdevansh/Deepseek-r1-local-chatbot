@@ -4,16 +4,18 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StateSnapshot
+from langgraph.types import StateSnapshot, Command
 from langchain_core.messages import AIMessage, HumanMessage
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+import json
 # Import the calendar tools from our event_handler module.
 from event_handler import create_event, get_events, update_event, delete_event, init_google_calendar
 
@@ -48,7 +50,7 @@ llm = init_model()
 #    the LLM to extract individual tasks, estimate durations, and call the tool "create_event"
 #    for each scheduled task. Otherwise, it falls back to normal calendar operations.
 # ------------------------------------------------------------------------------
-def agent_node(state: dict) -> dict:
+def calendar_agent(state: MessagesState) -> MessagesState:
     try:
         user_message = state["messages"][-1].content
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -60,18 +62,22 @@ You are an intelligent assistant that manages a Google Calendar using API tools.
 You can call only one tool at a time, once you create one event you have to call again if you want to create another event.
 The user has provided a to-do list. Your task is to:
   1. Parse the following to-do list input and extract each task.
-  2. Fetch the events of the day, analyse the free time slots, and schedule the tasks.
-  3.. For each task, assign a reasonable duration and schedule it during the day.
-  4. For each scheduled task, call the tool "create_event" with these parameters:
+  2. Fetch the events of the day using get_event tool as prescribed.
+  3. If you do not have times for each task set the boolean needs_deep_analysis as True for scheduling tasks and return the output in the mentioned format. There exists an agent that will provide you with the times for each events. You can create events only after that. 
+  4. If you do have times, move to the next step.
+  5. For each scheduled task, call the tool "create_event" with these parameters:
      - summary: the task description.
      - location: an empty string if not provided.
      - description: "Scheduled from to-do list".
      - start_time: the scheduled start time in ISO format (YYYY-MM-DDTHH:MM:SS) based on today ({today_str}).
      - end_time: the scheduled end time in ISO format.
      - attendees: an empty list.
-Output the tool calls in valid JSON.
 User input: "{user_message}"
 Today's date is {today_str}.
+Output must only be a valid JSON in the following format with no extra characters:
+            - message: Message for the user or the agent if needs_deep_analysis is True.
+            - needs_deep_analysis: Boolean indicating need for deeper scheduling help if the user asks to schedule a task or gives a todo list.
+            - scheduling_context: Additional metadata with user input
 """
             graph_agent = create_react_agent(
                 llm,
@@ -79,6 +85,8 @@ Today's date is {today_str}.
                 state_modifier=prompt
             )
             result = graph_agent.invoke(state)
+            print("Final state:", result['messages'][-1].content)
+            result["messages"][-1] = HumanMessage(content=result["messages"][-1].content, name="calendar")
             state["messages"].extend(result["messages"])
             return state
 
@@ -98,7 +106,35 @@ to create, list, update, or delete calendar events. Ask follow-up questions if a
         return state
 
     except Exception as e:
-        print(f"Error in agent_node: {e}")
+        print(f"Error in calendar_agent: {e}")
+        return state
+    
+
+def scheduling_agent(state: MessagesState) -> MessagesState:
+    try:
+      
+        agent_message = state["messages"][-1].content
+        date = datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
+        
+        prompt = f"""
+        You are an intellient task scheduling that schedules user's tasks or events at reasonable times by analysing user's schedule for the day.
+        Remember that now is {date}. Schedule events only after the current time without overlap with existing events.
+        Your input: {agent_message}
+        Output all user's tasks with the scheduled start time and end time and all other information you received.
+        """
+    
+        deepseek = ChatOllama(model='deepseek-r1:7b')
+        print("----------------------------", deepseek)
+
+        graph_agent = create_react_agent(model=deepseek, tools=[], state_modifier=prompt)
+        result = graph_agent.invoke(state)
+        print("Scheduling agent result:", result)  # Debugging
+        state["messages"].extend(result["messages"])
+        
+        return state
+    
+    except Exception as e:
+        print(f"Error in scheduling_agent: {e}")
         return state
 
 # ------------------------------------------------------------------------------
@@ -121,14 +157,23 @@ def print_stream(stream):
     except Exception as e:
         print(f"Error in print_stream: {e}")
 
+def schedule_decision(state: dict):
+    if json.loads(state['messages'][-1].content)['needs_deep_analysis']:
+        return "scheduler"
+    else: 
+        return END
+
 # ------------------------------------------------------------------------------
 # 4. Build the workflow graph
 # ------------------------------------------------------------------------------
 def get_workflow() -> CompiledStateGraph:
     workflow = StateGraph(MessagesState)
-    workflow.add_node("agent", agent_node)
-    workflow.add_edge(START, "agent")
-    workflow.add_edge("agent", END)
+    workflow.add_node("calendar", calendar_agent)
+    workflow.add_node("scheduler", scheduling_agent)
+    workflow.add_edge(START, "calendar")
+    workflow.add_conditional_edges("calendar", schedule_decision)
+    workflow.add_edge("scheduler", "calendar")
+    # workflow.add_edge("calendar", END)
     memory = MemorySaver()
     graph = workflow.compile(checkpointer=memory)
     return graph
@@ -140,6 +185,7 @@ def run_chatbot(graph: CompiledStateGraph, state: MessagesState, creds) -> State
     init_google_calendar(creds)
     config = {"configurable": {"thread_id": "1"}}
     for chunk in graph.stream(state, config=config):
+        print("--------------------------------------------------------------------")
         print(chunk)
     return graph.get_state(config=config)
 
@@ -165,10 +211,10 @@ if __name__ == "__main__":
     
     # Example user message containing a to-do list.
     initial_message = HumanMessage(
-        content="My to-do list: Buy groceries, Call John, Finish report, Exercise"
+        content="My to-do list: Buy groceries, Call John"
     )
     state = MessagesState(messages=[initial_message])
     
     workflow_graph = get_workflow()
     final_state = run_chatbot(workflow_graph, state, creds)
-    print("Final state:", final_state)
+    print("Final state:", final_state.values['messages'][-1].content)
