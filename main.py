@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from PIL import Image
 import io
-from chatbot import get_workflow, run_chatbot
+from outdated.chatbot import get_workflow, run_chatbot
 from langchain_core.messages import AIMessage, HumanMessage
 import pickle
 import json
