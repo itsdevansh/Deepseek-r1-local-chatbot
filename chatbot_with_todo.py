@@ -56,45 +56,29 @@ def calendar_agent(state: MessagesState) -> MessagesState:
         today_str = datetime.now().strftime("%Y-%m-%d")
         
         # Check if the message likely contains a to‑do list.
-        if any(keyword in user_message.lower() for keyword in ["todo", "to-do", "task list", "schedule my tasks"]):
-            prompt = f"""
-You are an intelligent assistant that manages a Google Calendar using API tools.
+       
+        prompt = f"""
+You are an intelligent assistant that manages a Google Calendar using tools you are provided.
 You can call only one tool at a time, once you create one event you have to call again if you want to create another event.
-The user has provided a to-do list. Your task is to:
+While updating or deleting events, get all the events for the mentioned date from 12am to 11:59pm. Use the id of that particular event to perform the necessary action.
+If the user has provided a to-do list. Your task is to:
   1. Parse the following to-do list input and extract each task.
-  2. Fetch the events of the day using get_event tool as prescribed.
+  2. Fetch the events of the mentioned day using get_event tool as prescribed from 12am to 11:59pm.
   3. If you do not have times for each task set the boolean needs_deep_analysis as True for scheduling tasks and return the output in the mentioned format. There exists an agent that will provide you with the times for each events. You can create events only after that. 
-  4. If you do have times, move to the next step.
+  4. If you do have times, set the boolean needs_deep_analysis as False and move to the next step.
   5. For each scheduled task, call the tool "create_event" with these parameters:
      - summary: the task description.
      - location: an empty string if not provided.
      - description: "Scheduled from to-do list".
-     - start_time: the scheduled start time in ISO format (YYYY-MM-DDTHH:MM:SS) based on today ({today_str}).
-     - end_time: the scheduled end time in ISO format.
+     - start_time: the scheduled start time.
+     - end_time: the scheduled end time.
      - attendees: an empty list.
 User input: "{user_message}"
 Today's date is {today_str}.
 Output must only be a valid JSON in the following format with no extra characters:
-            - message: Message for the user or the agent if needs_deep_analysis is True.
+            - message: Message for the user if needs_deep_analysis is False or the agent if needs_deep_analysis is True.
             - needs_deep_analysis: Boolean indicating need for deeper scheduling help if the user asks to schedule a task or gives a todo list.
-            - scheduling_context: Additional metadata with user input
-"""
-            graph_agent = create_react_agent(
-                llm,
-                tools=[create_event, get_events, update_event, delete_event],
-                state_modifier=prompt
-            )
-            result = graph_agent.invoke(state)
-            print("Final state:", result['messages'][-1].content)
-            result["messages"][-1] = HumanMessage(content=result["messages"][-1].content, name="calendar")
-            state["messages"].extend(result["messages"])
-            return state
-
-        # Fallback: Use the standard prompt for calendar management.
-        prompt = f"""
-You are a helpful assistant that manages Google Calendar events. Today is {today_str}.
-Extract all necessary information from the user message and use appropriate tools (create_event, get_events, update_event, delete_event)
-to create, list, update, or delete calendar events. Ask follow-up questions if any required details are missing.
+            - scheduling_context: Additional metadata with user input.
 """
         graph_agent = create_react_agent(
             llm,
@@ -102,8 +86,25 @@ to create, list, update, or delete calendar events. Ask follow-up questions if a
             state_modifier=prompt
         )
         result = graph_agent.invoke(state)
+        print("Final state:", result['messages'][-1].content)
+        result["messages"][-1] = HumanMessage(content=result["messages"][-1].content, name="calendar")
         state["messages"].extend(result["messages"])
         return state
+
+        # Fallback: Use the standard prompt for calendar management.
+#         prompt = f"""
+# You are a helpful assistant that manages Google Calendar events. Today is {today_str}.
+# Extract all necessary information from the user message and use appropriate tools (create_event, get_events, update_event, delete_event)
+# to create, list, update, or delete calendar events. Ask follow-up questions if any required details are missing.
+# """
+#         graph_agent = create_react_agent(
+#             llm,
+#             tools=[create_event, get_events, update_event, delete_event],
+#             state_modifier=prompt
+#         )
+#         result = graph_agent.invoke(state)
+#         state["messages"].extend(result["messages"])
+#         return state
 
     except Exception as e:
         print(f"Error in calendar_agent: {e}")
@@ -117,18 +118,19 @@ def scheduling_agent(state: MessagesState) -> MessagesState:
         date = datetime.now().strftime("%d/%m/%Y, %H:%M:%S")
         
         prompt = f"""
-        You are an intellient task scheduling that schedules user's tasks or events at reasonable times by analysing user's schedule for the day.
-        Remember that now is {date}. Schedule events only after the current time without overlap with existing events.
+        You are an intellient task scheduling that schedules user's tasks or events at reasonable times by analysing user's schedule for the day. You need to think how much time will each task take and what order should to schedule the tasks in.
+        Remember that today's date and time {date}. Schedule events only after the current time without overlap with existing events.
         Your input: {agent_message}
-        Output all user's tasks with the scheduled start time and end time and all other information you received.
+        Output all user's tasks with the scheduled start time and end time and all other information you received. Respond only in valid json format.
         """
     
-        deepseek = ChatOllama(model='deepseek-r1:7b')
+        deepseek = ChatOllama(model='deepseek-r1:14b')
         print("----------------------------", deepseek)
 
         graph_agent = create_react_agent(model=deepseek, tools=[], state_modifier=prompt)
         result = graph_agent.invoke(state)
         print("Scheduling agent result:", result)  # Debugging
+        result["messages"][-1] = HumanMessage(content=result["messages"][-1].content.split('</think')[1], name="calendar")
         state["messages"].extend(result["messages"])
         
         return state
@@ -194,6 +196,7 @@ def run_chatbot(graph: CompiledStateGraph, state: MessagesState, creds) -> State
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
     # Replace the below with your actual Google Calendar credentials.
+    creds = None
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if not creds or not creds.valid:
