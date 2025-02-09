@@ -91,7 +91,6 @@ def create_event(
 @tool
 def get_events(startDateTime: str, endDateTime: str) -> List[dict]:
   """Get Google Calendar events using any date range.
-  
   Args:
     startDateTime (str): The start time of the event. example : 2011-06-03T10:00:00-07:00
     endDateTime (str): The end time of the event. example : 2011-06-03T14:00:00-07:00

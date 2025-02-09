@@ -2,26 +2,87 @@ import streamlit as st
 import os
 from PIL import Image
 import io
-from chatbot import get_workflow, run_chatbot
+from chatbot_with_todo import get_workflow, run_chatbot
 from langchain_core.messages import AIMessage, HumanMessage
 import pickle
 import json
-from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from openai import OpenAI
+from streamlit_extras.stylable_container import stylable_container
 import sounddevice as sd
 import scipy.io.wavfile as wav
 import numpy as np
 import tempfile
+from openai import OpenAI
 import queue
-import threading
-import time
 
 TOKEN_FILE = "token.json"
 CLIENT_SECRET_FILE = "credentials.json"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+
+class AudioRecorder:
+    def __init__(self):
+        self.fs = 44100  # Sample rate
+        self.recording = False
+        self.audio_queue = queue.Queue()
+        
+    def callback(self, indata, frames, time, status):
+        if self.recording:
+            self.audio_queue.put(indata.copy())
+    
+    def start_recording(self):
+        self.recording = True
+        self.audio_data = []
+        self.stream = sd.InputStream(
+            samplerate=self.fs,
+            channels=1,
+            callback=self.callback
+        )
+        self.stream.start()
+    
+    def stop_recording(self):
+        self.recording = False
+        self.stream.stop()
+        self.stream.close()
+        
+        # Combine all audio data
+        while not self.audio_queue.empty():
+            self.audio_data.append(self.audio_queue.get())
+        
+        if not self.audio_data:
+            return None
+            
+        audio_data = np.concatenate(self.audio_data, axis=0)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+        wav.write(temp_file.name, self.fs, audio_data)
+        return temp_file.name
+
+def transcribe_audio(audio_file_path):
+    client = OpenAI()
+    with open(audio_file_path, "rb") as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+    return transcription.text
+
+def speak_text(text):
+    client = OpenAI()
+    speech_file_path = "speech.mp3"
+    response = client.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=text,
+    )
+    response = response.read()
+    st.audio(response, format="audio/wav", autoplay=True)
+
+    # audio_file = open(speech_file_path, "rb")
+    # audio_bytes = audio_file.read()
+    # return audio_bytes
+
 
 # Configure page settings with dark theme support
 st.set_page_config(
@@ -75,8 +136,8 @@ st.markdown("""
 def initialize_session_state():
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "selected_model" not in st.session_state:
-        st.session_state.selected_model = "Google Calendar Agent"
+    # if "selected_model" not in st.session_state:
+    #     st.session_state.selected_model = "Google Calendar Agent"
     if "graph" not in st.session_state:
         st.session_state.graph = get_workflow() 
     if "config" not in st.session_state:
@@ -87,12 +148,10 @@ def initialize_session_state():
         st.session_state.authenticated = False
     if "recording" not in st.session_state:
         st.session_state.recording = False
-    if "audio_data" not in st.session_state:
-        st.session_state.audio_data = []
-    if "audio_thread" not in st.session_state:
-        st.session_state.audio_thread = None
     if "transcribed_text" not in st.session_state:
-        st.session_state.transcribed_text = ""
+        st.session_state.transcribed_text = None
+    if "recording_icon" not in st.session_state:
+        st.session_state.recording_icon = ":material/mic:"
 
 class AudioRecorder:
     def __init__(self):
@@ -140,7 +199,7 @@ def transcribe_audio(audio_file_path):
         )
     return transcription.text
 
-def process_message(message, creds):
+def process_message(message, creds) -> str:
     if st.session_state.state.values == {}:
         st.session_state.state.values["messages"] = [HumanMessage(message)]
     else:
@@ -180,7 +239,6 @@ def main():
         return
     
     st.title("📅 Calendar Assistant")
-    
     if not st.session_state.authenticated:
         st.markdown("""
             <div class="welcome-container">
@@ -196,75 +254,75 @@ def main():
     
     # Chat messages
     for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            if message.get("image"):
-                st.image(message["image"])
-            st.markdown(message["content"])
+            with st.chat_message(message["role"]):
+                if message.get("image"):
+                    st.image(message["image"])
+                st.markdown(message["content"])
     
     # Chat input with audio recording
     if st.session_state.authenticated:
-        st.success("✓ Connected to Calendar")
-        
-        # Create container for input and recording button
-        input_container = st.container()
-        
-        # Create two columns for text input and audio button
-        col1, col2 = input_container.columns([6, 1])
-        
-        with col1:
-            user_input = st.text_input(
-                "Ask about your calendar...", 
-                key="chat_input",
-                value=st.session_state.transcribed_text
-            )
-        
-        with col2:
-            record_button = st.button(
-                "🎤 Record" if not st.session_state.recording else "⏹️ Stop",
-                key="record_button",
-                type="primary" if not st.session_state.recording else "secondary"
-            )
-        
-        if record_button:
-            if not st.session_state.recording:
+        with stylable_container(
+        key="bottom_content",
+        css_styles="""
+            {
+                position: fixed;
+                bottom: 0;
+                opacity: 1;
+                padding: 30px;
+                background-color: #0e1117;
+            }
+            """,
+        ):
+            col1, col2 = st.columns([1, 10])
+            with col1:
+                if st.button(icon=st.session_state.recording_icon, label="", key="mic", type='primary'):
+                    if not st.session_state.recording:
                 # Start recording
-                st.session_state.recording = True
-                st.session_state.audio_recorder = AudioRecorder()
-                st.session_state.audio_recorder.start_recording()
-                st.rerun()
-            else:
-                # Stop recording
-                audio_file = st.session_state.audio_recorder.stop_recording()
-                st.session_state.recording = False
-                
-                if audio_file:
-                    with st.spinner("Transcribing..."):
-                        transcription = transcribe_audio(audio_file)
-                        st.session_state.transcribed_text = transcription
-                        os.unlink(audio_file)  # Clean up temporary file
-                st.rerun()
+                        st.session_state.recording = True
+                        st.session_state.recording_icon = ":material/stop_circle:"
+                        st.session_state.audio_recorder = AudioRecorder()
+                        st.session_state.audio_recorder.start_recording()
+                        st.rerun()
+                    else:
+                        # Stop recording
+                        audio_file = st.session_state.audio_recorder.stop_recording()
+                        st.session_state.recording = False
+                        st.session_state.recording_icon = ":material/mic:"
+                        if audio_file:
+                            with st.spinner(""):
+                                transcription = transcribe_audio(audio_file)
+                                print(transcription)
+                                st.session_state.transcribed_text = transcription
+                                os.unlink(audio_file)  # Clean up temporary file
+                            st.rerun()
+            with col2:
+                user_input = st.chat_input("Ask about your calendar...")       
+            
         
-        # Send button or Enter key to submit
-        if st.button("Send") or user_input:
+        if user_input or st.session_state.transcribed_text:
             if user_input:
-                with st.chat_message("user"):
-                    st.markdown(user_input)
-                    st.session_state.messages.append({
-                        "role": "user",
-                        "content": user_input
-                    })
-                
-                with st.chat_message("assistant"):
-                    response = process_message(user_input, st.session_state.creds)
-                    st.markdown(response)
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": response
-                    })
-                
-                # Clear the input and transcribed text
-                st.session_state.transcribed_text = ""
-                st.rerun()
+                text = user_input
+                audio = False
+            if st.session_state.transcribed_text:
+                text = st.session_state.transcribed_text
+                st.session_state.transcribed_text = None
+                audio = True
+            with st.chat_message("user"):
+                st.markdown(text)
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": text
+                })
+
+            with st.chat_message("assistant"):
+                response = json.loads(process_message(text, st.session_state.creds))['response_for_user']
+                if audio:
+                    speak_text(response)
+                st.markdown(response)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": response
+            })
 
 if __name__ == "__main__":
     main()

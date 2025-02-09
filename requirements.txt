@@ -16,3 +16,5 @@ passlib
 langgraph
 python-jose
 python-multipart
+scipy
+sounddevice
