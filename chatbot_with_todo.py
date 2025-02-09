@@ -78,9 +78,10 @@ If the user has provided a to-do list. Your task is to:
 User input: "{user_message}"
 Today's date is {today_str}.
 Output must only be a valid JSON in the following format with no extra characters:
-            - message: Message for the user if needs_deep_analysis is False or the agent if needs_deep_analysis is True.
+            - message: Message for the agent.
             - needs_deep_analysis: Boolean indicating need for deeper scheduling help if the user asks to schedule a task or gives a todo list.
             - scheduling_context: Additional metadata with user input.
+            - response_for_user: Response to the user for user input with all information (if any) formatted in a pretty way if needs_deep_analysis is False, else empty.
 """
         graph_agent = create_react_agent(
             llm,
@@ -202,7 +203,7 @@ if __name__ == "__main__":
     
     # Example user message containing a to-do list.
     initial_message = HumanMessage(
-        content="My to-do list: Buy groceries, Call John"
+        content="List tomorrows events"
     )
     state = MessagesState(messages=[initial_message])
     

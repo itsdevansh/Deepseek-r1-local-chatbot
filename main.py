@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from PIL import Image
 import io
-from outdated.chatbot import get_workflow, run_chatbot
+from chatbot_with_todo import get_workflow, run_chatbot
 from langchain_core.messages import AIMessage, HumanMessage
 import pickle
 import json
@@ -284,7 +284,7 @@ def main():
                 })
 
             with st.chat_message("assistant"):
-                response = process_message(text, st.session_state.creds)
+                response = json.loads(process_message(text, st.session_state.creds))['response_for_user']
                 if audio:
                     speak_text(response)
                 st.markdown(response)
