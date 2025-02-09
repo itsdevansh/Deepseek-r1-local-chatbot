@@ -7,3 +7,4 @@ app/
 chat-event-master/
 outdated/
 cal-agent
+node_modules/
