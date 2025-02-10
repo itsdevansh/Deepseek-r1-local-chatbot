@@ -21,7 +21,7 @@ const register = async (req, res) => {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
-    const user = await User.create({ email, password, name });
+    const user = await User.create({ email, password, name});
     const token = generateToken(user);
 
     res.status(201).json({
@@ -31,6 +31,7 @@ const register = async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        creds: user.creds
       },
     });
   } catch (error) {
@@ -61,6 +62,7 @@ const login = async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        creds: user.creds,
       },
     });
   } catch (error) {

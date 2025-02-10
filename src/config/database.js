@@ -1,15 +1,20 @@
 // src/config/database.js
-const { Pool } = require('pg');
-require('dotenv').config();
+const { Pool } = require("pg");
+require("dotenv").config();
 
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
+try {
+  const pool = new Pool({
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    database: process.env.DB_NAME,
+  });
+  console.log(pool.query('SELECT NOW()'))
+  module.exports = {
+    query: (text, params) => pool.query(text, params),
+  };
+} catch (error) {
+  console.log(error);
+}
 
-module.exports = {
-  query: (text, params) => pool.query(text, params),
-};

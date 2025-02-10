@@ -10,7 +10,7 @@ let creds = null;
  * Initialize Google Calendar with credentials
  * @param {Object} credentials - The credentials object
  */
-function initGoogleCalendar(credentials) {
+async function initGoogleCalendar(credentials) {
   creds = credentials;
   console.log("Calendar initialized successfully");
 }
