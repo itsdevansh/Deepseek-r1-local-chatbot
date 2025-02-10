@@ -10,11 +10,9 @@ try {
     port: process.env.DB_PORT,
     database: process.env.DB_NAME,
   });
-  console.log(pool.query('SELECT NOW()'))
   module.exports = {
     query: (text, params) => pool.query(text, params),
   };
 } catch (error) {
   console.log(error);
 }
-

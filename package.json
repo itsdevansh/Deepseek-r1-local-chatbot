@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
+    "@langchain/anthropic": "^0.3.13",
     "@langchain/community": "^0.3.29",
     "@langchain/core": "^0.3.39",
     "@langchain/langgraph": "^0.2.45",
@@ -36,7 +37,8 @@
     "luxon": "^3.5.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

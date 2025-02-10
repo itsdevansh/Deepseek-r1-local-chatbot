@@ -3,7 +3,7 @@ const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 
 class User {
-  static async create({ email, password, name, provider = 'local', providerId = null, creds="" }) {
+  static async create({ email, password, name, provider = 'local', providerId = null, creds=null }) {
     const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
     
     const query = `
@@ -18,7 +18,7 @@ class User {
   }
 
   static async findByEmail(email) {
-    const query = 'SELECT * FROM users WHERE email = $1';
+    const query = 'SELECT email, name, creds FROM users WHERE email = $1';
     const result = await db.query(query, [email]);
     return result.rows[0];
   }

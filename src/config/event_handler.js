@@ -1,8 +1,7 @@
 const { google } = require("googleapis");
 const path = require("path");
-const fs = require("fs").promises;
-
-const SCOPES = ["https://www.googleapis.com/auth/calendar"];
+const { tool } = require("@langchain/core/tools");
+const { z } = require("zod");
 
 let creds = null;
 
@@ -26,45 +25,65 @@ async function initGoogleCalendar(credentials) {
  * @param {Array<string>} params.attendees - The list of attendees' emails
  * @returns {Promise<string|null>} The link to the created event or null if error
  */
-async function createEvent({
-  summary,
-  location,
-  description,
-  start_time,
-  end_time,
-  attendees,
-}) {
-  try {
-    const calendar = google.calendar({ version: "v3", auth: creds });
-    const event = {
-      summary,
-      location,
-      description,
-      start: { dateTime: start_time, timeZone: "America/Los_Angeles" },
-      end: { dateTime: end_time, timeZone: "America/Los_Angeles" },
-      recurrence: ["RRULE:FREQ=DAILY;COUNT=1"],
-      attendees: attendees.map((email) => ({ email })),
-      reminders: {
-        useDefault: false,
-        overrides: [
-          { method: "email", minutes: 24 * 60 },
-          { method: "popup", minutes: 10 },
-        ],
-      },
-    };
+const createEvent = tool(
+  async ({
+    summary,
+    location,
+    description,
+    start_time,
+    end_time,
+    attendees,
+  }) => {
+    try {
+      const calendar = google.calendar({ version: "v3", auth: creds });
+      const event = {
+        summary,
+        location,
+        description,
+        start: { dateTime: start_time, timeZone: "America/Los_Angeles" },
+        end: { dateTime: end_time, timeZone: "America/Los_Angeles" },
+        recurrence: ["RRULE:FREQ=DAILY;COUNT=1"],
+        attendees: attendees.map((email) => ({ email })),
+        reminders: {
+          useDefault: false,
+          overrides: [
+            { method: "email", minutes: 24 * 60 },
+            { method: "popup", minutes: 10 },
+          ],
+        },
+      };
 
-    const response = await calendar.events.insert({
-      calendarId: "primary",
-      requestBody: event,
-    });
+      const response = await calendar.events.insert({
+        calendarId: "primary",
+        requestBody: event,
+      });
 
-    console.log("Event created:", response.data.htmlLink);
-    return `Event created: ${response.data.htmlLink}`;
-  } catch (error) {
-    console.error("An error occurred:", error);
-    return null;
+      console.log("Event created:", response.data.htmlLink);
+      return `Event created: ${response.data.htmlLink}`;
+    } catch (error) {
+      console.error("An error occurred:", error);
+      return null;
+    }
+  },
+  {
+    name: "create_event",
+    description: "Create a Google Calendar event.",
+    schema: z.object({
+      summary: z.string().describe("The summary of the event."),
+      location: z.string().describe("The location of the event."),
+      description: z.string().describe("The description of the event."),
+      start_time: z
+        .string()
+        .describe(
+          "The start time of the event (format: YYYY-MM-DDTHH:mm:ssZ)."
+        ),
+      end_time: z
+        .string()
+        .describe("The end time of the event (format: YYYY-MM-DDTHH:mm:ssZ)."),
+      attendees: z.array(z.string()).describe("The list of attendees' emails."),
+    }),
   }
-}
+);
 
 /**
  * Get Google Calendar events for a date range
@@ -72,27 +91,41 @@ async function createEvent({
  * @param {string} endDateTime - The end time (format: 2011-06-03T14:00:00-07:00)
  * @returns {Promise<Array<Object>|Object>} List of events or error object
  */
-async function getEvents(startDateTime, endDateTime) {
-  try {
-    const calendar = google.calendar({ version: "v3", auth: creds });
-    const response = await calendar.events.list({
-      calendarId: "primary",
-      timeMin: startDateTime,
-      timeMax: endDateTime,
-      singleEvents: true,
-    });
+const getEvents = tool(
+  async ({startDateTime, endDateTime}) => {
+    try {
+      const calendar = google.calendar({ version: "v3", auth: creds });
+      const response = await calendar.events.list({
+        calendarId: "primary",
+        timeMin: startDateTime,
+        timeMax: endDateTime,
+        singleEvents: true,
+      });
 
-    return response.data.items.map((event) => ({
-      eventId: event.id,
-      summary: event.summary,
-      start: event.start,
-      end: event.end,
-    }));
-  } catch (error) {
-    console.error("An error occurred:", error);
-    return { error };
+      return response.data.items.map((event) => ({
+        eventId: event.id,
+        summary: event.summary,
+        start: event.start,
+        end: event.end,
+      }));
+    } catch (error) {
+      console.error("An error occurred:", error);
+      return { error };
+    }
+  },
+  {
+    name: "get_events",
+    description: "Get Google Calendar events for a date range.",
+    schema: z.object({
+      startDateTime: z
+        .string()
+        .describe("The start time (format: YYYY-MM-DDTHH:mm:ssZ)."),
+      endDateTime: z
+        .string()
+        .describe("The end time (format: YYYY-MM-DDTHH:mm:ssZ)."),
+    }),
   }
-}
+);
 
 /**
  * Update a Google Calendar event
@@ -106,71 +139,101 @@ async function getEvents(startDateTime, endDateTime) {
  * @param {Array<string>} params.attendees - The list of attendees' emails
  * @returns {Promise<string>} The link to the updated event
  */
-async function updateEvent({
-  eventId,
-  summary,
-  location,
-  description,
-  start_time,
-  end_time,
-  attendees,
-}) {
-  try {
-    const calendar = google.calendar({ version: "v3", auth: creds });
-    const event = await calendar.events.get({
-      calendarId: "primary",
-      eventId,
-    });
+const updateEvent = tool(
+  async ({
+    eventId,
+    summary,
+    location,
+    description,
+    start_time,
+    end_time,
+    attendees,
+  }) => {
+    try {
+      const calendar = google.calendar({ version: "v3", auth: creds });
+      const event = await calendar.events.get({
+        calendarId: "primary",
+        eventId,
+      });
 
-    const updatedEvent = {
-      ...event.data,
-      summary,
-      location,
-      description,
-      start: { dateTime: start_time, timeZone: "America/Los_Angeles" },
-      end: { dateTime: end_time, timeZone: "America/Los_Angeles" },
-      attendees: attendees.map((email) => ({ email })),
-    };
+      const updatedEvent = {
+        ...event.data,
+        summary,
+        location,
+        description,
+        start: { dateTime: start_time, timeZone: "America/Los_Angeles" },
+        end: { dateTime: end_time, timeZone: "America/Los_Angeles" },
+        attendees: attendees.map((email) => ({ email })),
+      };
 
-    const response = await calendar.events.update({
-      calendarId: "primary",
-      eventId,
-      requestBody: updatedEvent,
-    });
+      const response = await calendar.events.update({
+        calendarId: "primary",
+        eventId,
+        requestBody: updatedEvent,
+      });
 
-    console.log("Event updated:", response.data.htmlLink);
-    return response.data.htmlLink;
-  } catch (error) {
-    console.error("An error occurred:", error);
-    return error;
+      console.log("Event updated:", response.data.htmlLink);
+      return response.data.htmlLink;
+    } catch (error) {
+      console.error("An error occurred:", error);
+      return error;
+    }
+  },
+  {
+    name: "update_event",
+    description: "Update a Google Calendar event.",
+    schema: z.object({
+      eventId: z.string().describe("The ID of the event to update."),
+      summary: z.string().describe("The summary of the event."),
+      location: z.string().describe("The location of the event."),
+      description: z.string().describe("The description of the event."),
+      start_time: z
+        .string()
+        .describe(
+          "The start time of the event (format: YYYY-MM-DDTHH:mm:ssZ)."
+        ),
+      end_time: z
+        .string()
+        .describe("The end time of the event (format: YYYY-MM-DDTHH:mm:ssZ)."),
+      attendees: z.array(z.string()).describe("The list of attendees' emails."),
+    }),
   }
-}
+);
 
 /**
  * Delete a Google Calendar event
  * @param {string} eventId - The ID of the event to delete
  * @returns {Promise<string>} The link to the deleted event
  */
-async function deleteEvent(eventId) {
-  try {
-    const calendar = google.calendar({ version: "v3", auth: creds });
-    const event = await calendar.events.get({
-      calendarId: "primary",
-      eventId,
-    });
+const deleteEvent = tool(
+  async ({eventId}) => {
+    try {
+      const calendar = google.calendar({ version: "v3", auth: creds });
+      const event = await calendar.events.get({
+        calendarId: "primary",
+        eventId,
+      });
 
-    await calendar.events.delete({
-      calendarId: "primary",
-      eventId,
-    });
+      await calendar.events.delete({
+        calendarId: "primary",
+        eventId,
+      });
 
-    console.log("Event deleted:", event.data.htmlLink);
-    return event.data.htmlLink;
-  } catch (error) {
-    console.error("An error occurred:", error);
-    return error;
+      console.log("Event deleted:", event.data.htmlLink);
+      return event.data.htmlLink;
+    } catch (error) {
+      console.error("An error occurred:", error);
+      return error;
+    }
+  },
+  {
+    name: "delete_event",
+    description: "Delete a Google Calendar event.",
+    schema: z.object({
+      eventId: z.string().describe("The ID of the event to delete."),
+    }),
   }
-}
+);
 
 module.exports = {
   initGoogleCalendar,

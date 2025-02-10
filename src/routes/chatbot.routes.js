@@ -9,7 +9,10 @@ const { google } = require("googleapis");
 
 router.put("/authenticate", authMiddleware, async (req, res) => {
   try {
-    const client = chatbotController.authorize(req.user.creds, req.user.email);
+    const client = await chatbotController.authorize(
+      req.user.creds,
+      req.user.email
+    );
     if (client) {
       res
         .status(200)
@@ -21,29 +24,27 @@ router.put("/authenticate", authMiddleware, async (req, res) => {
 });
 
 router.post("/message", authMiddleware, async (req, res) => {
-  if (req.user.creds != "") {
+  if (req.user.creds != null) {
     try {
-      const { state, message } = req.body;
-
-      if (state & (state == {})) {
+      let { state, message } = req.body;
+      if (!Object.keys(state).length) {
         state = { messages: [new HumanMessage(message)] };
       } else {
-        state = {};
         state.messages.append(new HumanMessage(message));
       }
-      const graph = await chatbotController.getWorkflow();
 
+      const graph = await chatbotController.getWorkflow();
       state = await chatbotController.runChatbot(
         graph,
         state,
         google.auth.fromJSON(JSON.parse(req.user.creds))
       );
       const response = JSON.parse(
-        state.values.messages[finalState.values.messages.length - 1].content
+        state.messages[finalState.messages.length - 1].content
       )["response_for_user"];
       res.status(200).json({ message: response, state: state });
     } catch (error) {
-      res.status(500).json({ message: error });
+      res.status(500).json({ message: error.message });
     }
   } else {
     res.status(401).json({ message: "Not authenticated to Google Calendar" });

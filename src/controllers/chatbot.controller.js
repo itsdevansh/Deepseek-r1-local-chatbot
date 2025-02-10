@@ -1,16 +1,27 @@
 // main.js
-const dotenv = require("dotenv");
+require("dotenv").config();
 const { DateTime } = require("luxon");
 const { ChatOpenAI } = require("@langchain/openai");
 const { ChatOllama } = require("@langchain/ollama");
 const { createReactAgent } = require("@langchain/langgraph/prebuilt");
-const { MemorySaver, Annotation, StateGraph, START, END } = require("@langchain/langgraph");
-const { BaseMessage, AIMessage, HumanMessage } = require("@langchain/core/messages");
+const {
+  MemorySaver,
+  Annotation,
+  StateGraph,
+  START,
+  END,
+  messagesStateReducer,
+} = require("@langchain/langgraph");
+const {
+  BaseMessage,
+  AIMessage,
+  HumanMessage,
+} = require("@langchain/core/messages");
 const { google } = require("googleapis");
-const { authenticate } = require('@google-cloud/local-auth');
+const { authenticate } = require("@google-cloud/local-auth");
 const fs = require("fs").promises;
 const path = require("path");
-const User = require('../models/user.model');
+const User = require("../models/user.model");
 
 // Import calendar tools
 const {
@@ -23,18 +34,16 @@ const {
 
 // Constants
 // const TOKEN_PATH = path.join(process.cwd(), 'token.json');
-const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
+const CREDENTIALS_PATH = path.join(process.cwd(), "credentials.json");
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
-
 
 const GraphAnnotation = Annotation.Root({
   // Define a 'messages' channel to store an array of BaseMessage objects
-  messages: Annotation<BaseMessage()>({
-    // Reducer function: Combines the current state with new messages
-    reducer: (currentState, updateValue) => currentState.concat(updateValue),
-    // Default function: Initialize the channel with an empty array
-    default: () => [],
-  })
+  messages:
+    Annotation <
+    [BaseMessage] >({
+      // Reducer function: Combines the current state with new messages
+      reducer: messagesStateReducer, }),
 });
 
 /**
@@ -76,11 +85,11 @@ async function initCalendarAgent(userMessage) {
       apiKey: OPENAI_API_KEY,
     });
     console.log("Model initialized successfully:", llm);
-    const calendarAgent = await createReactAgent(
-      llm,
-      [createEvent, getEvents, updateEvent, deleteEvent],
-      prompt
-    );
+    const calendarAgent = createReactAgent({
+      llm: llm,
+      tools: [createEvent, getEvents, updateEvent, deleteEvent],
+      stateModifier: prompt,
+    });
     return calendarAgent;
   } catch (error) {
     console.error(`Model cannot be initialized: ${error}`);
@@ -104,7 +113,11 @@ async function initSchedulingAgent(agentMessage) {
 
     const deepseek = new ChatOllama({ model: "deepseek-r1:7b" });
     console.log("Model initialized successfully:", deepseek);
-    const schedulerAgent = await createReactAgent(deepseek, [], prompt);
+    const schedulerAgent = createReactAgent({
+      llm: deepseek,
+      tools: [],
+      stateModifier: prompt,
+    });
     return schedulerAgent;
   } catch (error) {
     console.error(`Model cannot be initialized: ${error}`);
@@ -115,10 +128,10 @@ async function initSchedulingAgent(agentMessage) {
 /**
  * Calendar agent node implementation
  */
-async function calendarNode(state) {
+const calendarNode = async (state) => {
   try {
     const userMessage = state.messages[state.messages.length - 1].content;
-    const calendarAgent = initCalendarAgent(userMessage)
+    const calendarAgent = initCalendarAgent(userMessage);
     const response = await calendarAgent.invoke(state);
 
     console.log(
@@ -134,14 +147,14 @@ async function calendarNode(state) {
     return { messages: [response] };
   } catch (error) {
     console.error(`Error in calendar_agent: ${error}`);
-    return state;
+    throw error;
   }
-}
+};
 
 /**
  * Scheduling agent implementation
  */
-async function schedulingNode(state) {
+const schedulingNode = async (state) => {
   try {
     const agentMessage = state.messages[state.messages.length - 1].content;
     const schedulerAgent = initSchedulingAgent(agentMessage);
@@ -159,35 +172,9 @@ async function schedulingNode(state) {
     return { messages: [response] };
   } catch (error) {
     console.error(`Error in scheduling_agent: ${error}`);
-    return state;
+    throw error;
   }
-}
-
-/**
- * Helper function to print streaming output
- */
-function printStream(stream) {
-  try {
-    for (const s of stream) {
-      if (typeof s === "object") {
-        if ("branch" in s) {
-          console.log(`Branch condition met: ${s.branch}`);
-        } else if ("agent" in s && "messages" in s.agent) {
-          const message = s.agent.messages[s.agent.messages.length - 1];
-          if (message instanceof AIMessage) {
-            console.log(message.content);
-          }
-        } else {
-          console.log("Other stream output:", s);
-        }
-      } else {
-        console.log("Unexpected stream format:", s);
-      }
-    }
-  } catch (error) {
-    console.error(`Error in print_stream: ${error}`);
-  }
-}
+};
 
 /**
  * Schedule decision function
@@ -206,34 +193,49 @@ function scheduleDecision(state) {
  * Get workflow function
  */
 async function getWorkflow() {
-  const workflow = new StateGraph(GraphAnnotation);
+  try {
+    const workflow = new StateGraph(GraphAnnotation)
+      .addNode("calendar", calendarNode)
+      .addNode("scheduler", schedulingNode)
+      .addEdge(START, "calendar")
+      .addConditionalEdges("calendar", scheduleDecision)
+      .addEdge("scheduler", "calendar");
 
-  workflow.addNode("calendar", calendarNode);
-  workflow.addNode("scheduler", schedulingNode);
-  workflow.addEdge(START, "calendar");
-  workflow.addConditionalEdges("calendar", scheduleDecision);
-  workflow.addEdge("scheduler", "calendar");
-
-  const memory = new MemorySaver();
-  const graph = await workflow.compile({ checkpointer: memory });
-  return graph;
+    const checkpointer = new MemorySaver();
+    const graph = workflow.compile({ checkpointer });
+    return graph;
+  } catch (error) {
+    console.log(`Error in getWorkflow: ${error.message}`);
+    throw error;
+  }
 }
 
 /**
  * Main runner function
  */
 async function runChatbot(graph, state, creds) {
-  await initGoogleCalendar(creds);
-  const config = { configurable: { thread_id: "1" } };
+  try {
+    await initGoogleCalendar(creds);
+    const config = { configurable: { thread_id: "42" } };
 
-  for await (const chunk of graph.stream(state, config)) {
-    console.log(
-      "--------------------------------------------------------------------"
-    );
-    console.log(chunk);
+    // for (const chunk of graph.stream(state, config)) {
+    //   console.log(
+    //     "--------------------------------------------------------------------"
+    //   );
+    //   console.log(chunk);
+    // }
+    for await (const chunk of await graph.stream(
+      { messages: [new HumanMessage("hello")] },
+      config
+    )) {
+      console.log(chunk["messages"]);
+      console.log("\n====\n");
+    }
+    return graph.getState(config);
+  } catch (error) {
+    console.error(`Error in runChatbot: ${error.message}`);
+    throw error;
   }
-
-  return graph.getState(config);
 }
 
 /**
@@ -247,12 +249,12 @@ async function saveCredentials(client, email) {
   const keys = JSON.parse(content);
   const key = keys.installed || keys.web;
   const payload = JSON.stringify({
-    type: 'authorized_user',
+    type: "authorized_user",
     client_id: key.client_id,
     client_secret: key.client_secret,
     refresh_token: client.credentials.refresh_token,
   });
-  await User.updateCredByEmail(payload, email)
+  await User.updateCredByEmail(payload, email);
   // await fs.writeFile(TOKEN_PATH, payload);
 }
 
@@ -262,7 +264,7 @@ async function saveCredentials(client, email) {
  */
 async function authorize(creds, email) {
   try {
-    if (creds != "") {
+    if (creds != null) {
       const credentials = JSON.parse(creds);
       return google.auth.fromJSON(credentials);
     }
@@ -274,11 +276,11 @@ async function authorize(creds, email) {
       await saveCredentials(client, email);
     }
     return client;
-  } catch(error) {
-    console.error("Error in authenticating google calendar:", error);
+  } catch (error) {
+    console.error("Error in authenticating google calendar:", error.message);
+    throw error;
   }
 }
-
 
 /**
  * Main execution
@@ -286,7 +288,7 @@ async function authorize(creds, email) {
 async function main() {
   try {
     // Handle Google Calendar authentication
-    const creds = authorize()
+    const creds = authorize();
 
     const initialMessage = new HumanMessage({
       content: "List tomorrow's events",
@@ -310,5 +312,5 @@ async function main() {
 module.exports = {
   getWorkflow,
   runChatbot,
-  authorize
+  authorize,
 };
