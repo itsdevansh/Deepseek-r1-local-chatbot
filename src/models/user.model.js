@@ -18,7 +18,7 @@ class User {
   }
 
   static async findByEmail(email) {
-    const query = 'SELECT email, name, creds FROM users WHERE email = $1';
+    const query = 'SELECT email, name, password, creds FROM users WHERE email = $1';
     const result = await db.query(query, [email]);
     return result.rows[0];
   }

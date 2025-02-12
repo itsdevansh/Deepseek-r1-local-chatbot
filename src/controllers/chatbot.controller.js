@@ -16,6 +16,7 @@ const {
   BaseMessage,
   AIMessage,
   HumanMessage,
+  map,
 } = require("@langchain/core/messages");
 const { google } = require("googleapis");
 const { authenticate } = require("@google-cloud/local-auth");
@@ -37,19 +38,65 @@ const {
 const CREDENTIALS_PATH = path.join(process.cwd(), "credentials.json");
 const SCOPES = ["https://www.googleapis.com/auth/calendar"];
 
-const GraphAnnotation = Annotation.Root({
-  // Define a 'messages' channel to store an array of BaseMessage objects
-  messages:
-    Annotation <
-    [BaseMessage] >({
-      // Reducer function: Combines the current state with new messages
-      reducer: messagesStateReducer, }),
-});
+// const GraphAnnotation = Annotation.Root({
+//   // Define a 'messages' channel to store an array of BaseMessage objects
+//   messages:
+//     Annotation <
+//     [BaseMessage] >
+//     {
+//       // Reducer function: Combines the current state with new messages
+//       reducer: messagesStateReducer,
+//     },
+// });
+
+const MessageFormat = {
+  channels: {
+    messages: {
+      value: [BaseMessage],
+      reducer: messagesStateReducer,
+    },
+  },
+};
+
+const convertToLangChainMessage = (message) => {
+  try {
+    // If already a LangChain message instance, return as is
+    if (message instanceof BaseMessage) {
+      return message;
+    }
+
+    // If it's a nested structure from serialization
+    if (message.lc && message.id[2] === "AIMessage") {
+      // Handle nested AI message
+
+      return new AIMessage(message.kwargs.content);
+    }
+    // Handle nested Human message
+    else if (message.lc && message.id[2] === "HumanMessage") {
+      return new HumanMessage(message.kwargs.content);
+    }
+
+    // If it's a simple string
+    if (typeof message === "string") {
+      return new HumanMessage(message);
+    }
+
+    // If it's a simple object with content
+    if (message.content) {
+      return new HumanMessage(message.content);
+    }
+
+    throw new Error(`Unable to convert message: ${JSON.stringify(message)}`);
+  } catch (error) {
+    console.error("Error converting message:", error);
+    throw error;
+  }
+};
 
 /**
  * Initialize OpenAI GPT
  */
-async function initCalendarAgent(userMessage) {
+async function initCalendarAgent() {
   try {
     const MODEL_NAME = process.env.MODEL_NAME;
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -71,7 +118,6 @@ async function initCalendarAgent(userMessage) {
      - start_time: the scheduled start time.
      - end_time: the scheduled end time.
      - attendees: an empty list.
-    User input: "${userMessage}"
     Today's date is ${todayStr}.
     Output must only be a valid JSON in the following format with no extra characters:
      - message: Message for the agent.
@@ -84,7 +130,6 @@ async function initCalendarAgent(userMessage) {
       temperature: 0.3,
       apiKey: OPENAI_API_KEY,
     });
-    console.log("Model initialized successfully:", llm);
     const calendarAgent = createReactAgent({
       llm: llm,
       tools: [createEvent, getEvents, updateEvent, deleteEvent],
@@ -100,13 +145,12 @@ async function initCalendarAgent(userMessage) {
 /**
  * Initialize Deepseek
  */
-async function initSchedulingAgent(agentMessage) {
+async function initSchedulingAgent() {
   try {
     const date = DateTime.now().toFormat("dd/MM/yyyy, HH:mm:ss");
     const prompt = `
     You are an intelligent task scheduling that schedules user's tasks or events at reasonable times by analysing user's schedule for the day. You need to think how much time will each task take and what order should to schedule the tasks in.
     Remember that today's date and time ${date}. Schedule events only after the current time without overlap with existing events.
-    Your input: ${agentMessage}
     output date/time values in ISO 8601/RFC3339 format including the time zone information.
     Output all user's tasks with the scheduled start time and end time and all other information you received. Respond only in valid json format.
   `;
@@ -131,20 +175,20 @@ async function initSchedulingAgent(agentMessage) {
 const calendarNode = async (state) => {
   try {
     const userMessage = state.messages[state.messages.length - 1].content;
-    const calendarAgent = initCalendarAgent(userMessage);
-    const response = await calendarAgent.invoke(state);
+    const calendarAgent = await initCalendarAgent();
 
-    console.log(
-      "Final state:",
-      response.messages[response.messages.length - 1].content
-    );
+    console.log(state);
 
-    response.messages[response.messages.length - 1] = new HumanMessage({
-      content: response.messages[response.messages.length - 1].content,
-      name: "calendar",
-    });
+    var response = await calendarAgent.invoke({ messages: state.messages });
 
-    return { messages: [response] };
+    // response = response.messages.map(convertToLangChainMessage);
+
+    // response.messages[response.messages.length - 1] = new HumanMessage({
+    //   content: response.messages[response.messages.length - 1].content,
+    //   name: "calendar",
+    // });
+
+    return { messages: response.messages };
   } catch (error) {
     console.error(`Error in calendar_agent: ${error}`);
     throw error;
@@ -157,19 +201,24 @@ const calendarNode = async (state) => {
 const schedulingNode = async (state) => {
   try {
     const agentMessage = state.messages[state.messages.length - 1].content;
-    const schedulerAgent = initSchedulingAgent(agentMessage);
-    const response = await schedulerAgent.invoke(state);
-    console.log("Scheduling agent response:", response);
 
-    response.messages[response.messages.length - 1] = new HumanMessage({
-      content:
-        response.messages[response.messages.length - 1].content.split(
-          "</think>"
-        )[1],
-      name: "scheduler",
+    const schedulerAgent = await initSchedulingAgent();
+
+    const response = await schedulerAgent.invoke({
+      messages: state.messages,
     });
 
-    return { messages: [response] };
+    // response = response.messages.map(convertToLangChainMessage);
+
+    // response.messages[response.messages.length - 1] = new HumanMessage({
+    //   content:
+    //     response.messages[response.messages.length - 1].content.split(
+    //       "</think>"
+    //     )[1],
+    //   name: "scheduler",
+    // });
+
+    return { messages: response.messages };
   } catch (error) {
     console.error(`Error in scheduling_agent: ${error}`);
     throw error;
@@ -194,7 +243,7 @@ function scheduleDecision(state) {
  */
 async function getWorkflow() {
   try {
-    const workflow = new StateGraph(GraphAnnotation)
+    const workflow = new StateGraph({ channels: MessageFormat.channels })
       .addNode("calendar", calendarNode)
       .addNode("scheduler", schedulingNode)
       .addEdge(START, "calendar")
@@ -213,10 +262,19 @@ async function getWorkflow() {
 /**
  * Main runner function
  */
-async function runChatbot(graph, state, creds) {
+const runChatbot = async (state, creds) => {
   try {
     await initGoogleCalendar(creds);
+    const workflow = new StateGraph({ channels: MessageFormat.channels })
+      .addNode("calendar", calendarNode)
+      .addNode("scheduler", schedulingNode)
+      .addEdge(START, "calendar")
+      .addConditionalEdges("calendar", scheduleDecision)
+      .addEdge("scheduler", "calendar");
+
     const config = { configurable: { thread_id: "42" } };
+    const checkpointer = new MemorySaver();
+    const graph = workflow.compile({ checkpointer });
 
     // for (const chunk of graph.stream(state, config)) {
     //   console.log(
@@ -224,19 +282,26 @@ async function runChatbot(graph, state, creds) {
     //   );
     //   console.log(chunk);
     // }
-    for await (const chunk of await graph.stream(
-      { messages: [new HumanMessage("hello")] },
-      config
-    )) {
-      console.log(chunk["messages"]);
-      console.log("\n====\n");
-    }
+    // for await (const chunk of await graph.stream(
+    //   { messages: [new HumanMessage("hello")] },
+    //   config
+    // )) {
+    //   console.log(chunk["messages"]);
+    //   console.log("\n====\n");
+    // }
+    // return graph.getState(config);
+
+    // const initialState = {
+    //   messages: state.messages.map(convertToLangChainMessage),
+    // };
+
+    await graph.invoke(state, config);
     return graph.getState(config);
   } catch (error) {
     console.error(`Error in runChatbot: ${error.message}`);
     throw error;
   }
-}
+};
 
 /**
  * Serializes credentials to a file compatible with GoogleAuth.fromJSON.
