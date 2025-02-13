@@ -102,12 +102,7 @@ const getEvents = tool(
         singleEvents: true,
       });
 
-      return response.data.items.map((event) => ({
-        eventId: event.id,
-        summary: event.summary,
-        start: event.start,
-        end: event.end,
-      }));
+      return response
     } catch (error) {
       console.error("An error occurred:", error);
       return { error };

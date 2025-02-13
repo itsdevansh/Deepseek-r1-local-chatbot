@@ -58,41 +58,6 @@ const MessageFormat = {
   },
 };
 
-const convertToLangChainMessage = (message) => {
-  try {
-    // If already a LangChain message instance, return as is
-    if (message instanceof BaseMessage) {
-      return message;
-    }
-
-    // If it's a nested structure from serialization
-    if (message.lc && message.id[2] === "AIMessage") {
-      // Handle nested AI message
-
-      return new AIMessage(message.kwargs.content);
-    }
-    // Handle nested Human message
-    else if (message.lc && message.id[2] === "HumanMessage") {
-      return new HumanMessage(message.kwargs.content);
-    }
-
-    // If it's a simple string
-    if (typeof message === "string") {
-      return new HumanMessage(message);
-    }
-
-    // If it's a simple object with content
-    if (message.content) {
-      return new HumanMessage(message.content);
-    }
-
-    throw new Error(`Unable to convert message: ${JSON.stringify(message)}`);
-  } catch (error) {
-    console.error("Error converting message:", error);
-    throw error;
-  }
-};
-
 /**
  * Initialize OpenAI GPT
  */
@@ -174,10 +139,7 @@ async function initSchedulingAgent() {
  */
 const calendarNode = async (state) => {
   try {
-    const userMessage = state.messages[state.messages.length - 1].content;
     const calendarAgent = await initCalendarAgent();
-
-    console.log(state);
 
     var response = await calendarAgent.invoke({ messages: state.messages });
 
@@ -200,15 +162,11 @@ const calendarNode = async (state) => {
  */
 const schedulingNode = async (state) => {
   try {
-    const agentMessage = state.messages[state.messages.length - 1].content;
-
     const schedulerAgent = await initSchedulingAgent();
 
     const response = await schedulerAgent.invoke({
       messages: state.messages,
     });
-
-    // response = response.messages.map(convertToLangChainMessage);
 
     // response.messages[response.messages.length - 1] = new HumanMessage({
     //   content:
@@ -276,26 +234,15 @@ const runChatbot = async (state, creds) => {
     const checkpointer = new MemorySaver();
     const graph = workflow.compile({ checkpointer });
 
-    // for (const chunk of graph.stream(state, config)) {
-    //   console.log(
-    //     "--------------------------------------------------------------------"
-    //   );
-    //   console.log(chunk);
-    // }
-    // for await (const chunk of await graph.stream(
-    //   { messages: [new HumanMessage("hello")] },
-    //   config
-    // )) {
-    //   console.log(chunk["messages"]);
-    //   console.log("\n====\n");
-    // }
-    // return graph.getState(config);
-
-    // const initialState = {
-    //   messages: state.messages.map(convertToLangChainMessage),
-    // };
-
-    await graph.invoke(state, config);
+    for await (
+      const chunk of await graph.stream(state, config, {
+        streamMode: "values",
+      })
+    ) {
+      console.log(chunk["messages"]);
+      console.log("\n====\n");
+    }
+    // await graph.invoke(state, config);
     return graph.getState(config);
   } catch (error) {
     console.error(`Error in runChatbot: ${error.message}`);
@@ -320,7 +267,6 @@ async function saveCredentials(client, email) {
     refresh_token: client.credentials.refresh_token,
   });
   await User.updateCredByEmail(payload, email);
-  // await fs.writeFile(TOKEN_PATH, payload);
 }
 
 /**
